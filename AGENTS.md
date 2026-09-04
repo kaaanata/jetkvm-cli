@@ -1,0 +1,32 @@
+# Project Notes
+
+- All public repository documentation, examples, plugin metadata, and skill content must be written in English.
+- `docs/design.md` is the source of truth for product scope, public MCP contracts, protocol assumptions, and safety invariants.
+- `docs/hil-inventory.md` records the sanitized current hardware test fixture and verification boundary. Never add its IP, MAC, CPU serial/device ID, account identity, credentials, or SSH key details.
+- The product ships one `jetkvm` binary with a complete user/agent-facing control CLI and an embedded MCP server. CLI and MCP must call the same domain operations, policy, device actors, operation ledger, and receipts.
+- The repository license is Apache-2.0.
+- Target MCP protocol revision `2026-07-28` using the official Go SDK.
+- The first public release supports stdio and loopback-only stateless Streamable HTTP. Remote HTTP remains out of scope.
+- Release builds should be single-file executables. External FFmpeg may be a development fallback, not a production requirement.
+- Use mature CLI components. Cobra is the command-tree authority; Charmbracelet Log is preferred for stderr human logs. Fang remains experimental and must not become the parser/lifecycle authority. Huh may be reconsidered when its dependency graph is compatible with the project; the current confirmation prompt remains a narrow adapter and never an authorization authority.
+- Every CLI command supports stable JSON output. Non-TTY execution defaults to JSON; stdout contains only the result document and stderr contains logs/progress. CLI exit codes and MCP error kinds share one taxonomy.
+- Releases use release-please for version/release PR and SemVer tag creation, then GoReleaser in the same release workflow to publish cross-platform CLI artifacts, checksums, SBOM, and provenance where supported.
+- Installation follows an ownership model: standalone installs may self-update; package-manager, source, unmanaged, and unknown installs must remain owned by their original installer. Never overwrite a binary whose owner cannot be proven.
+- `jetkvm setup` is the product onboarding authority for agent integrations. Device enrollment remains governed by the strict JetKVM configuration model. Codex and Claude Code should use their native plugin lifecycle by default; direct MCP installation is an explicit compatibility mode, never a silent fallback.
+- The JetKVM plugin bundles one MCP definition and one canonical skill, and always invokes the installed binary as `jetkvm mcp serve --transport=stdio`. Do not bundle a second executable inside a plugin.
+- Setup, update, and uninstall must be idempotent, produce stable machine-readable receipts, detect foreign conflicts, and remove only resources whose ownership is established by a prior receipt.
+- Treat JetKVM WebRTC JSON-RPC and HID protocols as internal, version-sensitive protocols rather than stable public APIs.
+- Local device access is the default. JetKVM Cloud support is outside the first release.
+- A real LAN JetKVM and a JetKVM Cloud account are available for testing. Keep its IP address, hardware device ID, credentials, and cloud account details out of committed files; resolve them from local ignored configuration.
+- MCP protocol statelessness must not be confused with the stateful JetKVM WebRTC, HID, video, operation-ledger, and device-actor lifecycles.
+- Every device-facing operation must target a stable device identity. Aliases are display names, not authorization identities.
+- Multiple devices are first-class: client, policy, actor, control handle, cross-process lock, generation, configured lifetimes, and receipts are isolated by stable device ID. Serialize writes only within one device; allow independent devices to progress concurrently.
+- CLI WebRTC controls are command-scoped and must open/execute/neutralize/close in one process. MCP owns explicit handles across calls because its server process remains alive; never expose a CLI handle that runtime shutdown immediately invalidates.
+- Any operation that creates a JetKVM WebRTC session must honor the configured takeover policy because a new session can disconnect an existing browser session.
+- State-changing operations must not be retried after an ambiguous delivery result.
+- Keyboard and pointer operations share one exclusive control lease and must attempt terminal input neutralization on completion, cancellation, timeout, disconnect, panic, lease expiry, and shutdown.
+- The input surface includes atomic actions and bounded ordered action batches modeled after computer-use loops. A batch is deterministic execution, not an autonomous agent loop inside the server.
+- Credentials must never be accepted as MCP tool arguments or logged. Prefer operating-system credential stores, with dedicated environment variables reserved for automation.
+- MCP annotations are descriptive hints, not authorization boundaries. Enforce the compiled policy in both tool discovery and tool execution.
+- New tools require an explicit effect class, closed input/output schemas, retry policy, capability gate, receipt semantics, and tests.
+- Update this file and `docs/design.md` when product scope, public tools, protocol assumptions, or safety invariants change.

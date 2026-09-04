@@ -1,0 +1,14 @@
+{
+  "name": "jetkvm",
+  "version": "1.0.0",
+  "description": "Safely inspect and control physical computers through one or more JetKVM devices.",
+  "author": {
+    "name": "kaaanata",
+    "email": "kaaanata@users.noreply.github.com",
+    "url": "https://github.com/kaaanata"
+  },
+  "homepage": "https://github.com/kaaanata/jetkvm-cli",
+  "repository": "https://github.com/kaaanata/jetkvm-cli",
+  "license": "Apache-2.0",
+  "keywords": ["jetkvm", "mcp", "computer-use", "hardware"]
+}

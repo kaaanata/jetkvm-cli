@@ -1,0 +1,49 @@
+{
+  "version": 1,
+  "transport": {
+    "type": "stdio"
+  },
+  "output": {
+    "default": "auto"
+  },
+  "state": {
+    "path": "/absolute/path/to/private/jetkvm.db"
+  },
+  "toolsets": {
+    "allow": ["observe"],
+    "deny": []
+  },
+  "tools": {
+    "allow": [],
+    "deny": []
+  },
+  "devices": {
+    "lab": {
+      "device_id": "<stable-device-id>",
+      "origin": "http://jetkvm.example.invalid",
+      "exposed": true,
+      "allow_plain_http": true,
+      "credentials": {
+        "provider": "keychain",
+        "service": "jetkvm",
+        "account": "lab"
+      },
+      "tls": {},
+      "permissions": ["observe"],
+      "takeover": {
+        "allowed": false,
+        "require_confirmation": true
+      },
+      "session": {
+        "idle_timeout": "5m",
+        "absolute_lifetime": "30m"
+      }
+    }
+  },
+  "retention": {
+    "operation_receipts": "720h",
+    "security_audit": "2160h",
+    "observation_metadata": "24h",
+    "screenshots": "0s"
+  }
+}
