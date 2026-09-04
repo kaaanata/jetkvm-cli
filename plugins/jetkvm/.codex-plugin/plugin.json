@@ -9,7 +9,12 @@
   "homepage": "https://github.com/kaaanata/jetkvm-cli",
   "repository": "https://github.com/kaaanata/jetkvm-cli",
   "license": "Apache-2.0",
-  "keywords": ["jetkvm", "mcp", "computer-use", "hardware"],
+  "keywords": [
+    "jetkvm",
+    "mcp",
+    "computer-use",
+    "hardware"
+  ],
   "skills": "./skills/",
   "mcpServers": "./.mcp.json",
   "interface": {
@@ -18,7 +23,11 @@
     "longDescription": "Inspect and control one or more local JetKVM devices with shared policy, confirmation, and operation receipts.",
     "developerName": "kaaanata",
     "category": "Productivity",
-    "capabilities": ["Read", "Interactive", "Write"],
+    "capabilities": [
+      "Read",
+      "Interactive",
+      "Write"
+    ],
     "websiteURL": "https://github.com/kaaanata/jetkvm-cli",
     "defaultPrompt": [
       "Check my JetKVM devices and report their status.",

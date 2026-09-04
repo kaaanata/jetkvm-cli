@@ -10,5 +10,10 @@
   "homepage": "https://github.com/kaaanata/jetkvm-cli",
   "repository": "https://github.com/kaaanata/jetkvm-cli",
   "license": "Apache-2.0",
-  "keywords": ["jetkvm", "mcp", "computer-use", "hardware"]
+  "keywords": [
+    "jetkvm",
+    "mcp",
+    "computer-use",
+    "hardware"
+  ]
 }
