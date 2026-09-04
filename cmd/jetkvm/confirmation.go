@@ -1,15 +1,13 @@
 package main
 
 import (
-	"bufio"
 	"context"
 	"errors"
-	"fmt"
 	"io"
-	"strings"
 
 	"github.com/kaaanata/jetkvm-cli/internal/cli"
 	"github.com/kaaanata/jetkvm-cli/internal/confirmation"
+	"github.com/kaaanata/jetkvm-cli/internal/terminal"
 )
 
 type cliConfirmationIssuer struct {
@@ -22,27 +20,10 @@ func (i cliConfirmationIssuer) Issue(ctx context.Context, request cli.Confirmati
 	if !request.Interactive {
 		return nil, cli.ErrConfirmationRequired
 	}
-	if _, err := fmt.Fprintf(i.output, "Confirm JetKVM action\n%s\nDevice: %s\nType 'yes' to continue: ", request.Summary, request.DeviceID); err != nil {
+	approved, err := terminal.New(i.output, request.Interactive).Confirm(ctx, i.input,
+		"Confirm JetKVM action", request.Summary+"\nDevice: "+string(request.DeviceID))
+	if err != nil {
 		return nil, err
-	}
-	answer := make(chan string, 1)
-	readErr := make(chan error, 1)
-	go func() {
-		line, err := bufio.NewReader(i.input).ReadString('\n')
-		if err != nil && !errors.Is(err, io.EOF) {
-			readErr <- err
-			return
-		}
-		answer <- strings.TrimSpace(line)
-	}()
-	var approved bool
-	select {
-	case <-ctx.Done():
-		return nil, context.Cause(ctx)
-	case err := <-readErr:
-		return nil, err
-	case value := <-answer:
-		approved = strings.EqualFold(value, "yes")
 	}
 	if !approved {
 		return nil, errors.New("JetKVM action was not confirmed")

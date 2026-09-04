@@ -49,7 +49,7 @@ All repository documentation, examples, plugin metadata, and skill content are E
 | Retry | Never retry automatically after the physical send boundary becomes ambiguous |
 | Receipts | Operation receipts retained 30 days; security audit retained 90 days |
 | Screenshot | Embedded H.264 decode to PNG; CLI files and MCP ImageContent with server-owned binding metadata |
-| CLI framework | Cobra command tree; Charmbracelet Log on stderr |
+| CLI framework | Cobra command tree; Lip Gloss v2 layouts; Huh v2 forms; Charmbracelet Log on stderr |
 | Machine output | Stable JSON; non-TTY defaults to JSON; stdout is result-only |
 | Release | Release Please creates SemVer tags; GoReleaser publishes artifacts and provenance |
 | Install | Release-pinned standalone installers plus package-manager channels |
@@ -353,6 +353,14 @@ Default retention:
 ## 14. CLI contract
 
 Cobra is the command-tree and parsing authority. Charmbracelet Log is used for human diagnostics on stderr. Every result-producing command supports `--output=json|text`; terminals default to text and non-TTY output defaults to JSON. Scripts should select JSON explicitly when the contract matters.
+
+Human presentation uses one `internal/terminal` theme and renderer with Lip Gloss v2 tables and layouts. The CLI maps typed status, capabilities, doctor reports, input/power/control receipts, screenshots, setup plans/receipts and update plans/receipts into semantic documents. Help and usage read the live Cobra command and flag metadata. Errors retain the stable error kind; input results retain delivery, verification, terminal claims, retry safety and neutralization without claiming physical success. Fang was reviewed as a layout reference and is not a dependency.
+
+The renderer measures the destination terminal width, wraps Unicode by display width and stacks narrow tables without truncating values. It does not require emoji or color to convey meaning. Display text is stripped of injected terminal commands. Non-TTY text, a nonempty `NO_COLOR`, `TERM=dumb`, or `JETKVM_ACCESSIBLE=1` produce no control sequences, including when forced-color environment variables are present. `JETKVM_ACCESSIBLE=1` selects linear screen-reader-friendly prompts. Terminal detection uses the actual terminal descriptor, not just a character-device check.
+
+Confirmation and maintenance choices use Huh v2, backed by Bubble Tea/Bubbles, with a default negative choice. Forms run briefly inline on stderr, never in the alternate screen. A terminal input uses the interactive form; plain/accessibility mode uses Huh's linear confirm prompt with complete action and device context. The adapter supplies cancelable reads and checks I/O errors because Huh's accessible runner does not propagate them. Only an affirmative, successfully completed interaction can return to the existing proof issuer or maintenance plan executor. Takeover/input/power policy, proof identity, installation ownership and idempotency remain domain responsibilities.
+
+JSON serialization and MCP transport bytes bypass the presentation layer entirely. Cobra-generated shell completion scripts and completion protocol directives also bypass styling. Bootstrap shell/PowerShell installers remain standalone scripts because they run before the Go binary exists; they do not acquire a Charm executable dependency. Setup host subprocess output is captured for authoritative readback, not streamed into the human UI. See [terminal UI verification and component review](terminal-ui.md).
 
 Stdout contains one result document and no progress, prompts, or logs. JSON fields use stable snake_case names. CLI exit kinds and MCP error kinds share one taxonomy, including invalid input, not found, policy denied, confirmation required, capability unavailable, stale generation, conflict, delivery ambiguous, action required, and internal failure.
 

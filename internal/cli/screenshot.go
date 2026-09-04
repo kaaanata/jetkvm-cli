@@ -3,8 +3,6 @@ package cli
 import (
 	"context"
 	"errors"
-	"fmt"
-	"io"
 	"os"
 	"time"
 
@@ -71,7 +69,7 @@ func (a *App) newScreenshotCommand() *cobra.Command {
 				if err != nil {
 					return err
 				}
-				return a.writeResult("screenshot", result, func(w io.Writer) error { _, err := fmt.Fprintln(w, result.File); return err })
+				return a.writeResult("screenshot", result)
 			})
 		},
 	}

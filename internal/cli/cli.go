@@ -22,6 +22,7 @@ import (
 	"github.com/kaaanata/jetkvm-cli/internal/domain"
 	"github.com/kaaanata/jetkvm-cli/internal/operation"
 	setupcore "github.com/kaaanata/jetkvm-cli/internal/setup"
+	"github.com/kaaanata/jetkvm-cli/internal/terminal"
 	updatecore "github.com/kaaanata/jetkvm-cli/internal/update"
 	"github.com/spf13/cobra"
 )
@@ -176,6 +177,7 @@ type App struct {
 	configPath       string
 	runtimeClose     func() error
 	executionStarted bool
+	presentationErr  error
 }
 
 // New constructs the complete public command tree.
@@ -195,8 +197,12 @@ func (a *App) Command() *cobra.Command { return a.root }
 // to stdout.
 func (a *App) Execute(ctx context.Context, args []string) int {
 	a.executionStarted = false
+	a.presentationErr = nil
 	a.root.SetArgs(args)
 	err := a.root.ExecuteContext(ctx)
+	if a.presentationErr != nil {
+		err = errors.Join(err, a.presentationErr)
+	}
 	if a.runtimeClose != nil {
 		closeErr := a.runtimeClose()
 		a.runtimeClose = nil
@@ -218,7 +224,7 @@ func (a *App) Execute(ctx context.Context, args []string) int {
 			err = usageError(err)
 		}
 	}
-	if renderErr := renderFailure(a.deps.Stderr, mode, err); renderErr != nil && a.deps.Logger != nil {
+	if renderErr := renderFailure(a.deps.Stderr, mode, err, a.deps.IsTerminal(a.deps.Stderr)); renderErr != nil && a.deps.Logger != nil {
 		a.deps.Logger.Error("render CLI failure", "error", renderErr)
 	}
 	return ExitCode(err)
@@ -292,6 +298,8 @@ func (a *App) newRootCommand() *cobra.Command {
 	root.SetIn(a.deps.Stdin)
 	root.SetOut(a.deps.Stdout)
 	root.SetErr(a.deps.Stderr)
+	root.SetHelpFunc(func(cmd *cobra.Command, _ []string) { a.presentationErr = a.writeHelp(cmd, cmd.OutOrStdout()) })
+	root.SetUsageFunc(func(cmd *cobra.Command) error { return a.writeHelp(cmd, cmd.ErrOrStderr()) })
 	root.PersistentFlags().StringVarP(&a.outputMode, "output", "o", outputAuto, "output format: json or text (defaults to text on a TTY and JSON otherwise)")
 	root.PersistentFlags().StringVar(&a.configPath, "config", a.configPath, "path to the strict JetKVM JSON configuration")
 	root.SetFlagErrorFunc(func(_ *cobra.Command, err error) error {
@@ -321,19 +329,7 @@ func (a *App) newVersionCommand() *cobra.Command {
 		Args:        noArgs,
 		Annotations: map[string]string{"runtime": "skip"},
 		RunE: func(*cobra.Command, []string) error {
-			return a.writeResult("version", a.deps.Version, func(w io.Writer) error {
-				_, err := fmt.Fprintf(w, "jetkvm %s\n", a.deps.Version.Version)
-				if err == nil && a.deps.Version.Commit != "" {
-					_, err = fmt.Fprintf(w, "commit: %s\n", a.deps.Version.Commit)
-				}
-				if err == nil && a.deps.Version.Date != "" {
-					_, err = fmt.Fprintf(w, "built: %s\n", a.deps.Version.Date)
-				}
-				if err == nil && a.deps.Version.Go != "" {
-					_, err = fmt.Fprintf(w, "runtime: %s %s/%s\n", a.deps.Version.Go, a.deps.Version.OS, a.deps.Version.Arch)
-				}
-				return err
-			})
+			return a.writeResult("version", a.deps.Version)
 		},
 	}
 }
@@ -353,22 +349,7 @@ func (a *App) newDevicesCommand() *cobra.Command {
 				return err
 			}
 			result := deviceListResult{Devices: items}
-			return a.writeResult("devices.list", result, func(w io.Writer) error {
-				if len(items) == 0 {
-					_, err := io.WriteString(w, "No configured devices.\n")
-					return err
-				}
-				for _, device := range items {
-					id := string(device.ID)
-					if id == "" {
-						id = "unverified"
-					}
-					if _, err := fmt.Fprintf(w, "%s\t%s\t%s\n", device.Alias, id, device.Origin); err != nil {
-						return err
-					}
-				}
-				return nil
-			})
+			return a.writeResult("devices.list", result)
 		},
 	})
 	return devices
@@ -393,9 +374,7 @@ func (a *App) newStatusCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			return a.writeResult("status", status, func(w io.Writer) error {
-				return writeStatusText(w, status)
-			})
+			return a.writeResult("status", status)
 		},
 	}
 	cmd.Flags().StringVar(&detail, "detail", detail, "status detail: basic, standard, or diagnostic")
@@ -417,9 +396,7 @@ func (a *App) newCapabilitiesCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			return a.writeResult("capabilities", snapshot, func(w io.Writer) error {
-				return writeCapabilitiesText(w, snapshot)
-			})
+			return a.writeResult("capabilities", snapshot)
 		},
 	}
 	cmd.Flags().BoolVar(&refresh, "refresh", false, "refresh device capability evidence")
@@ -445,9 +422,7 @@ func (a *App) newDoctorCommand() *cobra.Command {
 				return err
 			}
 			report := newDoctorReport(status, capabilities)
-			return a.writeResult("doctor", report, func(w io.Writer) error {
-				return writeDoctorText(w, report)
-			})
+			return a.writeResult("doctor", report)
 		},
 	}
 }
@@ -559,12 +534,7 @@ func exactArgs(count int) cobra.PositionalArgs {
 }
 
 func isTerminalWriter(w io.Writer) bool {
-	file, ok := w.(*os.File)
-	if !ok {
-		return false
-	}
-	info, err := file.Stat()
-	return err == nil && info.Mode()&os.ModeCharDevice != 0
+	return terminal.IsTerminal(w)
 }
 
 type deviceListResult struct {

@@ -7,14 +7,13 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"slices"
-	"strings"
 
 	"github.com/kaaanata/jetkvm-cli/internal/control"
 	"github.com/kaaanata/jetkvm-cli/internal/domain"
 	"github.com/kaaanata/jetkvm-cli/internal/input"
 	"github.com/kaaanata/jetkvm-cli/internal/operation"
 	setupcore "github.com/kaaanata/jetkvm-cli/internal/setup"
+	"github.com/kaaanata/jetkvm-cli/internal/terminal"
 	updatecore "github.com/kaaanata/jetkvm-cli/internal/update"
 	"github.com/kaaanata/jetkvm-cli/internal/video"
 )
@@ -48,13 +47,17 @@ func unavailableDependency(name string) error {
 	return fmt.Errorf("%s is not configured", name)
 }
 
-func (a *App) writeResult(command string, data any, textWriter func(io.Writer) error) error {
+func (a *App) writeResult(command string, data any) error {
 	mode, err := a.resolvedOutputMode()
 	if err != nil {
 		return err
 	}
 	if mode == "text" {
-		return textWriter(a.deps.Stdout)
+		document, err := resultDocument(command, data)
+		if err != nil {
+			return err
+		}
+		return terminal.New(a.deps.Stdout, a.deps.IsTerminal(a.deps.Stdout)).Write(document)
 	}
 	return writeJSON(a.deps.Stdout, resultEnvelope{
 		SchemaVersion: "v1",
@@ -93,13 +96,17 @@ func writeJSON(w io.Writer, value any) error {
 	return nil
 }
 
-func renderFailure(w io.Writer, mode string, err error) error {
+func renderFailure(w io.Writer, mode string, err error, tty bool) error {
 	detail := classifyFailure(err)
 	if mode == "json" {
 		return writeJSON(w, failureEnvelope{SchemaVersion: "v1", Error: detail})
 	}
-	_, writeErr := fmt.Fprintf(w, "Error [%s]: %s\n", detail.Kind, detail.Message)
-	return writeErr
+	document := terminal.Document{Title: "Error [" + detail.Kind + "]", Failure: true,
+		Sections: []terminal.Section{{Text: detail.Message}}}
+	if detail.ExitCode == ExitUsage {
+		document.Sections = append(document.Sections, terminal.Section{Text: "Use --help for usage."})
+	}
+	return terminal.New(w, tty).Write(document)
 }
 
 // ExitCode maps command failures to the stable process exit contract.
@@ -174,70 +181,4 @@ func safeErrorMessage(err error) string {
 		return "unknown error"
 	}
 	return err.Error()
-}
-
-func writeStatusText(w io.Writer, status domain.DeviceStatus) error {
-	if _, err := fmt.Fprintf(w, "%s (%s)\n", status.Alias, status.DeviceID); err != nil {
-		return err
-	}
-	if _, err := fmt.Fprintf(w, "reachable: %t\nobserved: %s\n", status.Reachable, status.Observed.Format("2006-01-02T15:04:05Z07:00")); err != nil {
-		return err
-	}
-	keys := make([]string, 0, len(status.Fields))
-	for key := range status.Fields {
-		keys = append(keys, key)
-	}
-	slices.Sort(keys)
-	for _, key := range keys {
-		field := status.Fields[key]
-		value := field.Value
-		if field.Unavailable != "" {
-			value = "unavailable: " + field.Unavailable
-		}
-		if _, err := fmt.Fprintf(w, "%s: %v [%s]\n", key, value, field.Source); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func writeCapabilitiesText(w io.Writer, snapshot domain.CapabilitySnapshot) error {
-	if _, err := fmt.Fprintf(w, "%s (%s)\n", snapshot.Alias, snapshot.DeviceID); err != nil {
-		return err
-	}
-	for _, item := range snapshot.Items {
-		state := "unavailable"
-		if item.Compiled && item.Configured && item.FirmwareSupported && item.CurrentlyReady {
-			state = "ready"
-		}
-		if item.Reason != "" {
-			state += ": " + item.Reason
-		}
-		if _, err := fmt.Fprintf(w, "%s: %s\n", item.Name, state); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func writeDoctorText(w io.Writer, report doctorReport) error {
-	state := "healthy"
-	if !report.Healthy {
-		state = "attention required"
-	}
-	if _, err := fmt.Fprintf(w, "doctor: %s\n", state); err != nil {
-		return err
-	}
-	if err := writeStatusText(w, report.Status); err != nil {
-		return err
-	}
-	if err := writeCapabilitiesText(w, report.Capabilities); err != nil {
-		return err
-	}
-	for _, warning := range report.Warnings {
-		if _, err := fmt.Fprintf(w, "warning: %s\n", strings.TrimSpace(warning)); err != nil {
-			return err
-		}
-	}
-	return nil
 }

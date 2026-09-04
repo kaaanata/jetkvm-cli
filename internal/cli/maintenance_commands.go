@@ -1,15 +1,14 @@
 package cli
 
 import (
-	"bufio"
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"path/filepath"
 	"strings"
 
 	setupcore "github.com/kaaanata/jetkvm-cli/internal/setup"
+	"github.com/kaaanata/jetkvm-cli/internal/terminal"
 	updatecore "github.com/kaaanata/jetkvm-cli/internal/update"
 	"github.com/spf13/cobra"
 )
@@ -39,14 +38,14 @@ func (a *App) newUpdateCommand() *cobra.Command {
 				return err
 			}
 			if checkOnly {
-				return a.writeResult("update.check", checked, func(w io.Writer) error { return writeUpdateCheck(w, checked) })
+				return a.writeResult("update.check", checked)
 			}
 			plan, err := a.deps.Updater.Plan(checked)
 			if err != nil {
 				return err
 			}
 			if dryRun {
-				return a.writeResult("update.plan", plan, func(w io.Writer) error { return writeUpdatePlan(w, plan) })
+				return a.writeResult("update.plan", plan)
 			}
 			if plan.Action == updatecore.ActionSelfReplace {
 				if err := a.confirmMaintenance("Replace the current JetKVM CLI with "+plan.TargetVersion+"?", yes); err != nil {
@@ -57,7 +56,7 @@ func (a *App) newUpdateCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			return a.writeResult("update", result, func(w io.Writer) error { return writeUpdateResult(w, result) })
+			return a.writeResult("update", result)
 		},
 	}
 	command.Flags().BoolVar(&checkOnly, "check", false, "check for an update without changing the installation")
@@ -84,7 +83,7 @@ func (a *App) newUpdateCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			return a.writeResult("update.rollback", result, func(w io.Writer) error { return writeUpdateResult(w, result) })
+			return a.writeResult("update.rollback", result)
 		},
 	}
 	rollback.Flags().BoolVarP(&rollbackYes, "yes", "y", false, "confirm rollback without prompting")
@@ -166,14 +165,7 @@ func (a *App) runSetupMany(ctx context.Context, hosts []setupcore.Host, flags se
 		if len(plans) == 0 {
 			return errors.Join(unavailable...)
 		}
-		return a.writeResult("setup.plan", plans, func(w io.Writer) error {
-			for _, plan := range plans {
-				if _, err := fmt.Fprintf(w, "%s: %s (%d step(s))\n", plan.Target.Host, plan.InitialState, len(plan.Steps)); err != nil {
-					return err
-				}
-			}
-			return nil
-		})
+		return a.writeResult("setup.plan", plans)
 	}
 	if len(plans) == 0 {
 		return errors.Join(unavailable...)
@@ -196,14 +188,7 @@ func (a *App) runSetupMany(ctx context.Context, hosts []setupcore.Host, flags se
 	if len(receipts) == 0 {
 		return errors.Join(unavailable...)
 	}
-	return a.writeResult("setup", receipts, func(w io.Writer) error {
-		for _, receipt := range receipts {
-			if _, err := fmt.Fprintf(w, "%s: %s\n", receipt.Target.Host, receipt.Status); err != nil {
-				return err
-			}
-		}
-		return nil
-	})
+	return a.writeResult("setup", receipts)
 }
 
 func (a *App) newSetupDoctorCommand(flags *setupFlags) *cobra.Command {
@@ -235,14 +220,7 @@ func (a *App) newSetupDoctorCommand(flags *setupFlags) *cobra.Command {
 				}
 				reports = append(reports, report)
 			}
-			return a.writeResult("setup.doctor", reports, func(w io.Writer) error {
-				for _, report := range reports {
-					if _, err := fmt.Fprintf(w, "%s: %s (%s)\n", report.Target.Host, report.Status, report.State); err != nil {
-						return err
-					}
-				}
-				return nil
-			})
+			return a.writeResult("setup.doctor", reports)
 		},
 	}
 }
@@ -274,10 +252,7 @@ func (a *App) newSetupUninstallCommand(flags *setupFlags) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			return a.writeResult("setup.uninstall", receipt, func(w io.Writer) error {
-				_, err := fmt.Fprintf(w, "%s: %s\n", receipt.Target.Host, receipt.Status)
-				return err
-			})
+			return a.writeResult("setup.uninstall", receipt)
 		},
 	}
 }
@@ -330,14 +305,11 @@ func (a *App) confirmMaintenance(message string, yes bool) error {
 	if !a.deps.IsTerminal(a.deps.Stderr) {
 		return ErrConfirmationRequired
 	}
-	if _, err := fmt.Fprintf(a.deps.Stderr, "%s Type 'yes' to continue: ", message); err != nil {
+	approved, err := terminal.New(a.deps.Stderr, a.deps.IsTerminal(a.deps.Stderr)).Confirm(a.root.Context(), a.deps.Stdin, "Confirm JetKVM maintenance", message)
+	if err != nil {
 		return err
 	}
-	answer, err := bufio.NewReader(a.deps.Stdin).ReadString('\n')
-	if err != nil && !errors.Is(err, io.EOF) {
-		return err
-	}
-	if !strings.EqualFold(strings.TrimSpace(answer), "yes") {
+	if !approved {
 		return ErrConfirmationRequired
 	}
 	return nil
@@ -350,29 +322,4 @@ func maximumArgs(count int) cobra.PositionalArgs {
 		}
 		return nil
 	}
-}
-
-func writeUpdateCheck(w io.Writer, result updatecore.CheckResult) error {
-	if !result.Available {
-		_, err := fmt.Fprintf(w, "jetkvm %s is up to date\n", result.Installation.Version)
-		return err
-	}
-	_, err := fmt.Fprintf(w, "update available: %s -> %s\n", result.Installation.Version, result.Release.Version)
-	return err
-}
-
-func writeUpdatePlan(w io.Writer, plan updatecore.Plan) error {
-	_, err := fmt.Fprintf(w, "%s: %s -> %s\n", plan.Action, plan.CurrentVersion, plan.TargetVersion)
-	return err
-}
-
-func writeUpdateResult(w io.Writer, result updatecore.Result) error {
-	if _, err := fmt.Fprintf(w, "%s: %s\n", result.Status, result.CurrentVersion); err != nil {
-		return err
-	}
-	if len(result.ActionRequired) > 0 {
-		_, err := fmt.Fprintf(w, "run: %s\n", strings.Join(result.ActionRequired, " "))
-		return err
-	}
-	return nil
 }

@@ -14,10 +14,12 @@ import (
 	"time"
 
 	charmlog "charm.land/log/v2"
+	"github.com/charmbracelet/colorprofile"
 	"github.com/kaaanata/jetkvm-cli/internal/app"
 	"github.com/kaaanata/jetkvm-cli/internal/buildinfo"
 	"github.com/kaaanata/jetkvm-cli/internal/cli"
 	"github.com/kaaanata/jetkvm-cli/internal/mcpserver"
+	"github.com/kaaanata/jetkvm-cli/internal/terminal"
 )
 
 const mcpBearerTokenEnvironment = "JETKVM_MCP_BEARER_TOKEN"
@@ -34,6 +36,9 @@ func run(args []string) int {
 		ReportTimestamp: true,
 		TimeFormat:      time.RFC3339,
 	})
+	if !terminal.New(os.Stderr, terminal.IsTerminal(os.Stderr)).Styled {
+		logger.SetColorProfile(colorprofile.NoTTY)
+	}
 	build := buildinfo.Current()
 	application := cli.New(cli.Dependencies{
 		Version:    build,

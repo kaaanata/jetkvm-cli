@@ -174,7 +174,7 @@ func (a *App) newControlOpenCommand() *cobra.Command {
 				return err
 			}
 			result := makeControlHandleResult(handle)
-			return a.writeResult("control.open", result, func(w io.Writer) error { return writeControlHandleText(w, result) })
+			return a.writeResult("control.open", result)
 		},
 	}
 	command.Flags().StringSliceVar(&capabilities, "capability", capabilities, "requested capability: input, power, or video")
@@ -203,7 +203,7 @@ func (a *App) newControlStatusCommand() *cobra.Command {
 				return err
 			}
 			result := makeControlSnapshotResult(snapshot)
-			return a.writeResult("control.status", result, func(w io.Writer) error { return writeControlSnapshotText(w, result) })
+			return a.writeResult("control.status", result)
 		},
 	}
 	flags.addRef(command)
@@ -230,7 +230,7 @@ func (a *App) newControlCloseCommand() *cobra.Command {
 				return err
 			}
 			result := makeControlHandleResult(handle)
-			return a.writeResult("control.close", result, func(w io.Writer) error { return writeControlHandleText(w, result) })
+			return a.writeResult("control.close", result)
 		},
 	}
 	flags.addRef(command)
@@ -466,7 +466,7 @@ func (a *App) newInputReleaseCommand() *cobra.Command {
 					return err
 				}
 				result := makeOperationReceiptResult(receipt)
-				return a.writeResult("input.release", result, func(w io.Writer) error { return writeOperationReceiptText(w, result) })
+				return a.writeResult("input.release", result)
 			}
 			ref, supplied, err := flags.optionalRef()
 			if err != nil {
@@ -519,10 +519,7 @@ func (a *App) newPowerStatusCommand() *cobra.Command {
 				if err != nil {
 					return err
 				}
-				return a.writeResult("power.status", state, func(w io.Writer) error {
-					_, err := fmt.Fprintf(w, "%s\nextension: %s\npower LED: %t\nHDD LED: %t\nobserved: %s\n", state.DeviceID, state.ActiveExtension, state.PowerLED, state.HDDLED, state.ObservedAt.Format(time.RFC3339Nano))
-					return err
-				})
+				return a.writeResult("power.status", state)
 			}
 			ref, supplied, err := flags.optionalRef()
 			if err != nil {
@@ -577,7 +574,7 @@ func (a *App) newPowerActionCommand(name string, action automation.PowerAction, 
 					return err
 				}
 				result := makeOperationReceiptResult(receipt)
-				return a.writeResult("power."+name, result, func(w io.Writer) error { return writeOperationReceiptText(w, result) })
+				return a.writeResult("power."+name, result)
 			}
 			ref, supplied, err := flags.optionalRef()
 			if err != nil {
@@ -712,7 +709,7 @@ func (a *App) runInputActions(command *cobra.Command, selector string, flags bou
 		if runErr != nil && result.Operation.ID == uuid.Nil() {
 			return runErr
 		}
-		return errors.Join(runErr, a.writeResult("input.run", view, func(w io.Writer) error { return writeRunActionsText(w, view) }))
+		return errors.Join(runErr, a.writeResult("input.run", view))
 	}
 	if supplied {
 		return execute(command.Context(), ref)
@@ -1025,32 +1022,4 @@ type runActionsResult struct {
 
 func makeRunActionsResult(result automation.RunActionsResult) runActionsResult {
 	return runActionsResult{Operation: makeOperationReceiptResult(result.Operation), Batch: result.Batch, Existing: result.Existing}
-}
-
-func writeControlHandleText(w io.Writer, result controlHandleResult) error {
-	_, err := fmt.Fprintf(w, "%s\ndevice: %s\ngeneration: %d\nstate: %s\ncapabilities: %s\nidle expires: %s\nabsolute expires: %s\n", result.HandleID, result.DeviceID, result.Generation, result.State, strings.Join(result.Capabilities, ","), result.IdleExpiresAt.Format(time.RFC3339Nano), result.AbsoluteExpiresAt.Format(time.RFC3339Nano))
-	return err
-}
-
-func writeControlSnapshotText(w io.Writer, result controlSnapshotResult) error {
-	if _, err := fmt.Fprintf(w, "transport: %s\nsession: %s\n", result.Transport, result.Session); err != nil {
-		return err
-	}
-	if result.Handle != nil {
-		return writeControlHandleText(w, *result.Handle)
-	}
-	return nil
-}
-
-func writeOperationReceiptText(w io.Writer, result operationReceiptResult) error {
-	_, err := fmt.Fprintf(w, "%s\ndevice: %s\naction: %s\nstage: %s\ndelivery: %s\nverified: %s\nterminal claim: %s\nretry safe: %t\n", result.OperationID, result.DeviceID, result.Action, result.Stage, result.Delivery, result.Verification, result.TerminalClaim, result.RetrySafe)
-	return err
-}
-
-func writeRunActionsText(w io.Writer, result runActionsResult) error {
-	if err := writeOperationReceiptText(w, result.Operation); err != nil {
-		return err
-	}
-	_, err := fmt.Fprintf(w, "batch: %s\nneutralized: %t\nactions: %d\n", result.Batch.Status, result.Batch.Neutralized, len(result.Batch.Actions))
-	return err
 }

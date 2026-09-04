@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/charmbracelet/x/ansi"
 	"github.com/kaaanata/jetkvm-cli/internal/buildinfo"
 	"github.com/kaaanata/jetkvm-cli/internal/domain"
 )
@@ -46,8 +47,11 @@ func TestVersionOutputDefaults(t *testing.T) {
 		if code != ExitOK {
 			t.Fatalf("exit code = %d, stderr = %s", code, stderr.String())
 		}
-		if got, want := stdout.String(), "jetkvm 1.2.3\ncommit: abc123\nbuilt: 2026-09-05T00:00:00Z\nruntime: go1.27.0 darwin/arm64\n"; got != want {
-			t.Fatalf("output = %q, want %q", got, want)
+		got := ansi.Strip(stdout.String())
+		for _, want := range []string{"jetkvm 1.2.3", "Build", "abc123", "2026-09-05T00:00:00Z", "go1.27.0 darwin/arm64"} {
+			if !strings.Contains(got, want) {
+				t.Fatalf("output = %q, missing %q", got, want)
+			}
 		}
 	})
 }
@@ -99,8 +103,11 @@ func TestDevicesListJSONAndText(t *testing.T) {
 		if code := app.Execute(t.Context(), []string{"devices", "list"}); code != ExitOK {
 			t.Fatalf("exit code = %d, stderr = %s", code, stderr.String())
 		}
-		if got, want := stdout.String(), "lab\tdevice-1\thttp://example.invalid\n"; got != want {
-			t.Fatalf("output = %q, want %q", got, want)
+		got := ansi.Strip(stdout.String())
+		for _, want := range []string{"Alias", "Device ID", "Origin", "lab", "device-1", "http://example.invalid"} {
+			if !strings.Contains(got, want) {
+				t.Fatalf("output = %q, missing %q", got, want)
+			}
 		}
 	})
 }
