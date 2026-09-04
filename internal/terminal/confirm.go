@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 
+	tea "charm.land/bubbletea/v2"
 	"charm.land/huh/v2"
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
@@ -35,7 +36,7 @@ func (r Renderer) Confirm(ctx context.Context, input io.Reader, title, descripti
 		WithInput(input).WithOutput(r.Output)
 	accessible := !r.Styled || !IsTerminal(input) || os.Getenv("JETKVM_ACCESSIBLE") == "1"
 	if !accessible {
-		err := form.RunWithContext(ctx)
+		err := runConfirmationForm(ctx, form, input, r.Output)
 		if ctx.Err() != nil {
 			return false, context.Cause(ctx)
 		}
@@ -72,6 +73,47 @@ func (r Renderer) Confirm(ctx context.Context, input io.Reader, title, descripti
 	}
 	err = errors.Join(err, in.err, out.err)
 	return approved && err == nil, err
+}
+
+// Huh owns the fields, navigation and view. The CLI owns cancellation: a
+// canceled operation requests graceful UI exit, then joins Program.Run before
+// returning the cause. Passing that context directly to Bubble Tea selects
+// its kill path, which skips joining the input reader before closing it.
+func runConfirmationForm(ctx context.Context, form *huh.Form, input io.Reader, output io.Writer) error {
+	form.SubmitCmd = tea.Quit
+	form.CancelCmd = tea.Quit
+	program := tea.NewProgram(confirmationForm{form}, tea.WithInput(input), tea.WithOutput(output),
+		tea.WithContext(context.WithoutCancel(ctx)), tea.WithoutSignalHandler())
+	// The executable's signal context is the single cancellation authority.
+	// Send is safe even if the program completes concurrently with cancellation.
+	joined := make(chan struct{})
+	stop := context.AfterFunc(ctx, func() { program.Send(tea.QuitMsg{}); close(joined) })
+	_, err := program.Run()
+	if !stop() {
+		<-joined
+	}
+	if ctx.Err() != nil {
+		return context.Cause(ctx)
+	}
+	if form.State == huh.StateAborted {
+		return huh.ErrUserAborted
+	}
+	return err
+}
+
+// Adapt Huh's string View to Bubble Tea v2 without changing its form model.
+type confirmationForm struct{ *huh.Form }
+
+func (f confirmationForm) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	model, command := f.Form.Update(msg)
+	f.Form = model.(*huh.Form)
+	return f, command
+}
+
+func (f confirmationForm) View() tea.View {
+	view := tea.NewView(f.Form.View())
+	view.ReportFocus = true
+	return view
 }
 
 type checkedReader struct {

@@ -4,6 +4,7 @@ package cli
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -11,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"charm.land/huh/v2"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/charmbracelet/x/xpty"
 	"github.com/kaaanata/jetkvm-cli/internal/domain"
@@ -24,8 +26,19 @@ func TestTerminalFixture(t *testing.T) {
 	if scenario == "" {
 		return
 	}
-	if scenario == "confirm" {
-		ok, err := terminal.New(os.Stderr, true).Confirm(t.Context(), os.Stdin, "Confirm JetKVM action", "Fixture action only\nDevice: fixture-device")
+	if strings.HasPrefix(scenario, "confirm") {
+		ctx := t.Context()
+		if scenario == "confirm-timeout" {
+			var cancel context.CancelFunc
+			ctx, cancel = context.WithTimeout(ctx, 250*time.Millisecond)
+			defer cancel()
+		}
+		ok, err := terminal.New(os.Stderr, true).Confirm(ctx, os.Stdin, "Confirm JetKVM action", "Fixture action only\nDevice: fixture-device")
+		if !ok && ((scenario == "confirm-abort" && errors.Is(err, huh.ErrUserAborted)) ||
+			(scenario == "confirm-timeout" && errors.Is(err, context.DeadlineExceeded))) {
+			fmt.Fprintln(os.Stderr, "aborted=true")
+			os.Exit(0)
+		}
 		if err != nil {
 			fmt.Fprintln(os.Stderr, err)
 			os.Exit(2)
@@ -53,6 +66,8 @@ func TestTerminalPTY(t *testing.T) {
 		{"error", "error", "", "", "Error [invalid_argument]", false},
 		{"confirm-yes", "confirm", "", "y\r", "choice=true", false},
 		{"confirm-default-no", "confirm", "", "\r", "choice=false", false},
+		{"confirm-abort", "confirm-abort", "", "\x03", "aborted=true", false},
+		{"confirm-timeout", "confirm-timeout", "", "", "aborted=true", false},
 		{"no-color-confirm", "confirm", "NO_COLOR=1", "yes\n", "choice=true", true},
 		{"dumb-help", "help", "TERM=dumb", "", "Commands", true},
 		{"accessible-confirm", "confirm", "JETKVM_ACCESSIBLE=1", "no\n", "choice=false", true},

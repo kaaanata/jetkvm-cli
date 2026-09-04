@@ -20,6 +20,8 @@ go test -race ./internal/terminal ./internal/cli ./cmd/jetkvm ./internal/confirm
 go vet ./...
 go run golang.org/x/vuln/cmd/govulncheck@v1.7.0 ./...
 go test ./internal/cli -run '^TestTerminalPTY$' -count=1 -v
+go test -race ./internal/cli -run '^TestTerminalPTY$' -count=10
+go test -race ./internal/terminal -run '^TestTerminalReaderJoinsReadBeforeReturning$' -count=100
 go test ./internal/cli -run 'TestJSONBytesIndependentOfPresentation|TestMCPOutputBypassesPresentation' -count=1 -v
 go test ./internal/terminal -run 'TestPlainOutputAndWidth|TestConfirm' -count=1 -v
 ```
@@ -36,6 +38,34 @@ tests verify generation binding and single-use consumption after confirmation.
 
 For isolated local verification, set `GOCACHE` to a private persistent directory
 if another concurrent task is cleaning the shared Go cache.
+
+### Terminal reader shutdown regression
+
+The initial Bubble Tea v2.0.2 / Ultraviolet `524a6607adb8` graph could return
+from `StreamEvents` on cancellation while its internal Read goroutine was still
+using cancelreader's kqueue descriptor. Bubble Tea then closed cancelreader,
+causing `os.File.Close` to race with `os.File.Fd`. A single green race run did not
+prove the lifecycle correct: the local ten-run PTY reproduction failed in both
+affirmative and default-negative confirmation.
+
+The fix upgrades to the official stable
+[Bubble Tea v2.0.9](https://github.com/charmbracelet/bubbletea/releases/tag/v2.0.9),
+whose module pins Ultraviolet `f5a850f9c2b7`. That revision contains
+[Ultraviolet #94 / 0b88c25](https://github.com/charmbracelet/ultraviolet/commit/0b88c25f3fff665a5f9dfd226ee71868f5e8d51a),
+which waits for the internal Read goroutine on the context and error exits.
+The blocked-reader regression fails immediately on the old dependency and
+checks that cancellation cannot be mistaken for Read completion.
+
+Upgrading alone fixes ordinary confirmation, but the additional timeout test
+still reproduced a race in v2.0.9: its `shutdown(kill=true)` bypasses the input
+join. Interactive confirmation therefore runs the Huh form as a Bubble Tea
+model, converts operation cancellation and Huh abort into graceful Quit, and
+joins Program.Run before returning the original cancellation or rejection.
+The executable's existing signal context owns signals. A short view/model
+adapter preserves Huh's components and key handling. PTY coverage exercises
+affirmative input, default rejection, Ctrl-C, timeout and plain/accessibility
+output. No race suppression, PTY skip, handwritten UI or upstream source fork
+is used.
 
 ## Intentional output exceptions
 
