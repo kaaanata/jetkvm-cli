@@ -180,7 +180,7 @@ func (s *Service) Apply(ctx context.Context, plan Plan) (Result, error) {
 		if typed, ok := errors.AsType[*Error](err); ok && (typed.Kind == ErrChecksumMismatch || typed.Kind == ErrSignatureVerification) {
 			return Result{}, typed
 		}
-		return Result{}, &Error{Kind: ErrApplyFailed, Message: "apply or activate verified release; executable restored", Cause: err}
+		return Result{}, &Error{Kind: ErrApplyFailed, Message: "apply or activate verified release failed; installation unchanged", Cause: err}
 	}
 
 	next := current

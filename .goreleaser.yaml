@@ -5,6 +5,7 @@ project_name: jetkvm
 before:
   hooks:
     - ./scripts/render-installers.sh {{ .Tag }} .cache/release-installers
+    - sh scripts/prepare-release-metadata.sh .cache/release-metadata
 
 builds:
   - id: jetkvm
@@ -41,20 +42,16 @@ archives:
       {{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}
     files:
       - LICENSE
-      - NOTICE
+      - src: .cache/release-metadata/NOTICE
+        dst: NOTICE
       - README.md
-      - src: internal/video/DECODER_LICENSES.txt
-        dst: DECODER_LICENSES.txt
-      # Preserve nested codec dependency manifests for archive SBOM scanners.
-      - src: internal/video/wasmdecoder/go.mod
-        dst: decoder/go.mod
-      - src: internal/video/wasmdecoder/go.sum
-        dst: decoder/go.sum
 
 checksum:
   name_template: checksums.txt
   algorithm: sha256
   extra_files:
+    - glob: .cache/release-metadata/decoder.sbom.json
+      name_template: decoder.sbom.json
     - glob: .cache/release-installers/install.sh
       name_template: install.sh
     - glob: .cache/release-installers/install.ps1
@@ -80,6 +77,8 @@ changelog:
 release:
   mode: keep-existing
   extra_files:
+    - glob: .cache/release-metadata/decoder.sbom.json
+      name_template: decoder.sbom.json
     - glob: .cache/release-installers/install.sh
       name_template: install.sh
     - glob: .cache/release-installers/install.ps1

@@ -277,6 +277,7 @@ type nopLocker struct{}
 func (nopLocker) Lock(context.Context) (func() error, error) { return func() error { return nil }, nil }
 
 type fakeBackend struct {
+	applyErr   error
 	release    Release
 	lastQuery  ReleaseQuery
 	nextBinary []byte
@@ -288,6 +289,9 @@ func (b *fakeBackend) Resolve(_ context.Context, query ReleaseQuery) (Release, e
 }
 
 func (b *fakeBackend) Apply(_ context.Context, _ Release, target, backup string) error {
+	if b.applyErr != nil {
+		return b.applyErr
+	}
 	current, err := os.ReadFile(target)
 	if err != nil {
 		return err
@@ -296,6 +300,40 @@ func (b *fakeBackend) Apply(_ context.Context, _ Release, target, backup string)
 		return err
 	}
 	return os.WriteFile(target, b.nextBinary, 0o755)
+}
+
+func TestApplyArchiveRejectionPreservesCauseAndInstallation(t *testing.T) {
+	executable := filepath.Join(t.TempDir(), "jetkvm")
+	if err := os.WriteFile(executable, []byte("original"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	receipts := FileReceiptStore{}
+	receipt := mustReceipt(t, executable, "1.0.0")
+	if err := receipts.Save(receipt); err != nil {
+		t.Fatal(err)
+	}
+	cause := newError(ErrApplyFailed, "release archive must contain exactly four files")
+	backend := &fakeBackend{release: Release{Version: "1.0.3"}, applyErr: cause}
+	service, err := NewService(PortableInstallationResolver{Executable: executable, Receipts: receipts}, backend, receipts, nopLocker{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = service.Apply(t.Context(), mustPlan(t, service))
+	typed, ok := errors.AsType[*Error](err)
+	if !ok || typed.Kind != ErrApplyFailed || typed.Message != "apply or activate verified release failed; installation unchanged" || !errors.Is(err, cause) {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	assertFile(t, executable, "original")
+	after, err := receipts.Load(executable)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if after.Version != receipt.Version || after.InstallID != receipt.InstallID {
+		t.Fatal("receipt changed before activation")
+	}
+	if _, err := os.Stat(previousBinaryPath(executable)); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("unexpected activation backup: %v", err)
+	}
 }
 
 func (b *fakeBackend) ReplaceFromFile(_ context.Context, source, target, backup string) error {

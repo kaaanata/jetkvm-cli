@@ -58,7 +58,7 @@ jobs:
       - name: Validate release installers
         if: ${{ steps.release.outputs.release_created == 'true' }}
         run: |
-          shellcheck scripts/install.sh scripts/render-installers.sh scripts/test-installers.sh
+          shellcheck scripts/install.sh scripts/render-installers.sh scripts/test-installers.sh scripts/prepare-release-metadata.sh scripts/check-release-archives.sh scripts/sign-checksums.sh
           pwsh -NoLogo -NoProfile -File scripts/test-install.ps1
           ./scripts/test-installers.sh
 
@@ -82,5 +82,6 @@ jobs:
             dist/checksums.txt
             dist/checksums.txt.sigstore.json
             dist/*.sbom.json
+            .cache/release-metadata/decoder.sbom.json
             .cache/release-installers/install.sh
             .cache/release-installers/install.ps1

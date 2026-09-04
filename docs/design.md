@@ -366,6 +366,8 @@ Commands call the automation service rather than JetKVM transports directly. Set
 
 GoReleaser is the single release-artifact authority. Release Please creates the version and tag; release automation publishes archives for macOS, Linux, and Windows on AMD64 and ARM64, checksums, SBOMs, and provenance.
 
+The archive compatibility contract is exactly four regular root files: `jetkvm` (`jetkvm.exe` on Windows), `LICENSE`, `NOTICE`, and `README.md`. Existing strict updaters and both bootstrap installers enforce this contract. Release preparation appends the complete codec MIT texts to generated `NOTICE`; nested decoder manifests and license sidecars must not become extra archive entries. Syft separately scans the nested decoder module into `decoder.sbom.json`, published as an independent asset covered by signed checksums and release attestation. Before signing or uploading, the release gate scans all six actual tar/ZIP outputs with the unchanged production extractors, compares extracted binaries byte-for-byte with build outputs, checks full codec attribution, and verifies archive/SBOM checksums and codec inventory.
+
 Release assets include pinned `install.sh` and `install.ps1` entry points. Installers use a closed platform map, private temporary storage, safe archive extraction, mandatory checksum verification, optional Cosign verification when the verifier is installed, and a durable installation receipt. They install to a user-owned directory by default and do not silently elevate. The built-in self-updater always verifies the Sigstore workflow identity and bundle.
 
 Installation owner is a closed enum:
