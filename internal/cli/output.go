@@ -16,6 +16,7 @@ import (
 	"github.com/kaaanata/jetkvm-cli/internal/operation"
 	setupcore "github.com/kaaanata/jetkvm-cli/internal/setup"
 	updatecore "github.com/kaaanata/jetkvm-cli/internal/update"
+	"github.com/kaaanata/jetkvm-cli/internal/video"
 )
 
 type resultEnvelope struct {
@@ -114,8 +115,12 @@ func classifyFailure(err error) failureDetail {
 		detail.Kind, detail.ExitCode = "device_not_exposed", ExitNotFound
 	case errors.Is(err, domain.ErrDeviceIdentityMismatch):
 		detail.Kind, detail.ExitCode = "device_identity_mismatch", ExitNotFound
-	case errors.Is(err, domain.ErrCapabilityUnavailable):
+	case errors.Is(err, domain.ErrCapabilityUnavailable), errors.Is(err, video.ErrDecoderUnavailable):
 		detail.Kind, detail.ExitCode = "capability_unavailable", ExitUnsupported
+	case errors.Is(err, video.ErrFrameStale), errors.Is(err, input.ErrObservationStale):
+		detail.Kind, detail.ExitCode = "observation_stale", ExitConflict
+	case errors.Is(err, video.ErrVideoUnavailable), errors.Is(err, video.ErrPipelineClosed), errors.Is(err, video.ErrDecodeFailed), errors.Is(err, video.ErrDimensionsExceeded):
+		detail.Kind, detail.ExitCode = "unavailable", ExitUnavailable
 	case errors.Is(err, domain.ErrFirmwareUnsupported):
 		detail.Kind, detail.ExitCode = "firmware_unsupported", ExitUnsupported
 	case errors.Is(err, domain.ErrTakeoverDisabled):
@@ -128,7 +133,7 @@ func classifyFailure(err error) failureDetail {
 		detail.Kind, detail.ExitCode = "control_not_found", ExitNotFound
 	case errors.Is(err, control.ErrControlExpired):
 		detail.Kind, detail.ExitCode = "control_expired", ExitConflict
-	case errors.Is(err, control.ErrGenerationMismatch), errors.Is(err, input.ErrStaleGeneration):
+	case errors.Is(err, control.ErrGenerationMismatch), errors.Is(err, input.ErrStaleGeneration), errors.Is(err, video.ErrGenerationMismatch):
 		detail.Kind, detail.ExitCode = "control_generation_mismatch", ExitConflict
 	case errors.Is(err, operation.ErrConflict):
 		detail.Kind, detail.ExitCode = "operation_conflict", ExitConflict

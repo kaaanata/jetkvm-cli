@@ -13,6 +13,7 @@ import (
 	"github.com/kaaanata/jetkvm-cli/internal/domain"
 	"github.com/kaaanata/jetkvm-cli/internal/input"
 	"github.com/kaaanata/jetkvm-cli/internal/jetkvm"
+	"github.com/kaaanata/jetkvm-cli/internal/video"
 )
 
 var (
@@ -55,15 +56,20 @@ func (f *SessionFactory) Open(ctx context.Context, deviceID domain.DeviceID, gen
 		generation:   generation,
 		capabilities: slices.Clone(capabilities),
 		protocol:     protocolSession,
+		neutralized:  !slices.Contains(capabilities, "input"),
+	}
+	if slices.Contains(capabilities, "video") {
+		if err := adapter.startVideo(protocolSession); err != nil {
+			return nil, errors.Join(err, protocolSession.CloseContext(context.Background()))
+		}
 	}
 	manager, err := input.NewManager(input.ManagerConfig{
 		Transport:  adapter,
 		Generation: generation,
-		// A decoder-backed observer is intentionally absent until the
-		// production decoder acceptance gate is satisfied.
-		Observer: nil,
+		Observer:   adapter,
 	})
 	if err != nil {
+		adapter.stopVideo()
 		return nil, errors.Join(err, protocolSession.CloseContext(context.Background()))
 	}
 	adapter.input = manager
@@ -94,15 +100,23 @@ func (b *sendBarrier) cross(ctx context.Context) error {
 }
 
 type sessionAdapter struct {
-	deviceID     domain.DeviceID
-	generation   uint64
-	capabilities []string
-	protocol     protocolSession
-	input        *input.Manager
-	closed       atomic.Bool
-	operationMu  sync.Mutex
-	barrier      *sendBarrier
-	neutralized  bool
+	deviceID       domain.DeviceID
+	generation     uint64
+	capabilities   []string
+	protocol       protocolSession
+	input          *input.Manager
+	closed         atomic.Bool
+	operationMu    sync.Mutex
+	barrier        *sendBarrier
+	neutralized    bool
+	video          *video.Pipeline
+	videoCancel    context.CancelFunc
+	videoDone      chan struct{}
+	trackReady     chan struct{}
+	videoSSRC      uint32
+	observationsMu sync.Mutex
+	observations   []ScreenObservation
+	captured       *ScreenObservation
 }
 
 type protocolSession interface {
@@ -138,6 +152,7 @@ func (s *sessionAdapter) close(ctx context.Context) error {
 	if err := s.protocol.CloseContext(ctx); err != nil {
 		return err
 	}
+	s.stopVideo()
 	s.closed.Store(true)
 	return nil
 }
@@ -148,6 +163,11 @@ func (s *sessionAdapter) RunActions(ctx context.Context, batch input.Batch, star
 	if s.closed.Load() {
 		return input.BatchReceipt{}, false, jetkvm.ErrSessionClosed
 	}
+	binding, err := s.resolveObservation(batch.Observation)
+	if err != nil {
+		return input.BatchReceipt{}, false, err
+	}
+	batch.Observation = binding
 	barrier := &sendBarrier{start: start}
 	s.barrier = barrier
 	receipt, err := s.input.RunActions(ctx, s.generation, batch)

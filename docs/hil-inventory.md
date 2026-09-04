@@ -65,7 +65,7 @@ The running Dropbear daemon accepts public-key SSH successfully. Invoking `/sbin
 | Current signal | 1920x1080 at 60 fps |
 | Video device nodes | `/dev/video0` through `/dev/video10` present |
 
-A later bounded HIL run established and cleanly closed the implemented WebRTC control session. Frame decode and MCP ImageContent remain unavailable pending the embedded decoder decision.
+A later bounded HIL run established and cleanly closed the implemented WebRTC control session. The visual-control candidate subsequently negotiated H.264, decoded a 1920x1080 IDR, and returned PNG screenshots through the CLI and native MCP ImageContent. Captures remain private ignored files.
 
 ## USB gadget
 
@@ -117,9 +117,10 @@ The high load correlates with the video-driver D-state workers and is not, by it
 | Hardware SKU/system | verified | device files and kernel interfaces |
 | Video signal metadata | verified | running native process and capture device state |
 | WebRTC signaling/RPC | verified | command-scoped owned session and live `getActiveExtension` RPC |
-| Screenshot decode | not tested | requires WebRTC or future HTTP screenshot API |
+| Screenshot decode | verified at 1920x1080 | real H.264 IDR decoded with the embedded WASI codec; CLI PNG and MCP ImageContent decoded and visually inspected |
 | HID neutralization | transport verified | neutral keyboard/absolute/relative reports accepted and flushed; host-side effect not independently observed |
-| Keyboard/pointer actions | not tested | requires a host-side observer |
+| Pointer actions | transport verified | CLI move/click/double-click/drag/scroll and final batch screenshot; MCP observation-bound click with post-action ImageContent; accepted non-retryable receipts and neutralization checked |
+| Pointer host-side GUI effect | not independently verified | attached host currently displays a text login console, not a disposable graphical target |
 | Serial receive/transmit | not tested | no serial I/O performed |
 | Virtual media mount | not tested | gadget exists but no image was mounted |
 | ATX/DC power | unavailable on current setup | serial-console is active extension |
@@ -127,7 +128,7 @@ The high load correlates with the video-driver D-state workers and is not, by it
 
 ## Next HIL steps
 
-1. Add a production-quality embedded H.264 decoder, then validate fresh frame capture without sending input.
-2. Add a host-side observer, then validate keyboard/pointer actions, neutralization, and cancellation.
+1. Extend decoded-frame coverage to additional resolutions, signal loss/recovery, firmware profiles, and concurrent physical devices.
+2. Use a disposable graphical host target to verify visible pointer selection/drag effects and keyboard text, in addition to accepted transport receipts and fresh screenshots.
 3. Validate serial RX/TX with a disposable loopback or test target.
 4. Add or swap to dedicated ATX/DC hardware before enabling destructive power HIL.

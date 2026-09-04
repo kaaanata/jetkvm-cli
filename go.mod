@@ -14,6 +14,7 @@ require (
 	github.com/pion/webrtc/v4 v4.2.20
 	github.com/sigstore/sigstore-go v1.2.1
 	github.com/spf13/cobra v1.10.2
+	github.com/tetratelabs/wazero v1.12.0
 	github.com/zalando/go-keyring v0.2.8
 	modernc.org/sqlite v1.58.0
 )

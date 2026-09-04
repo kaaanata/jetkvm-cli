@@ -1,5 +1,7 @@
 # Project Notes
 
+- Release signing pins Cosign 3 and verifies its output with the production Go updater verifier before upload. A signed release must be consumable by the installed updater, not merely accepted by the signing CLI.
+
 - Codex MCP readback includes plugin-provided servers and nests commands under `transport`; setup must distinguish installed plugins from available catalog entries. Reinstall updated Codex plugins with the host-native `plugin add` command.
 - Installer tests must compare a multi-megabyte installed executable byte-for-byte with its archive source; pipe read counts do not prove complete extraction.
 
@@ -33,4 +35,10 @@
 - Credentials must never be accepted as MCP tool arguments or logged. Prefer operating-system credential stores, with dedicated environment variables reserved for automation.
 - MCP annotations are descriptive hints, not authorization boundaries. Enforce the compiled policy in both tool discovery and tool execution.
 - New tools require an explicit effect class, closed input/output schemas, retry policy, capability gate, receipt semantics, and tests.
+- Screen capture negotiates H.264 only and decodes fresh SPS/PPS/IDR access units inside the embedded, memory-limited WASI module. No external FFmpeg or codec process is a production dependency. Keep decoder source, embedded binary, licenses, and reproducible build script together.
+- CLI visual commands capture and execute inside one command-scoped control; MCP image tools use an existing video handle and return ImageContent plus server-owned metadata. Video-only sessions must not send HID on close.
+- Coordinate bindings resolve only against observations issued by that session and generation. Their default lifetime is 30 seconds from source RTP reception, never from caller-supplied timestamps; capture freshness is a separate bound. A post-action observation must start after input completion, not reuse the pre-action frame.
+- Actor Execute cancellation joins the terminal callback before callers read operation receipts or release session ownership. Screenshots never turn transport acceptance into a proven physical outcome; preserve accepted input receipts if later observation fails.
+- Live RTP ingestion must not block on decoding. The video pipeline owns one active decode and at most one latest complete pending IDR, stamps source age during reception, and joins its decoder worker on close. Nested decoder module manifests ship with archives for SBOM discovery; CI reproduces the embedded module and scans both module graphs.
+- Input batch/action/observation receipts use explicit snake_case JSON fields, including `neutralized` and `cleanup_failure`.
 - Update this file and `docs/design.md` when product scope, public tools, protocol assumptions, or safety invariants change.

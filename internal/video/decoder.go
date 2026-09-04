@@ -20,13 +20,6 @@ type DecoderFactory interface {
 	New() (Decoder, error)
 }
 
-type unavailableDecoderFactory struct{}
-
-func (unavailableDecoderFactory) Name() string          { return "unavailable" }
-func (unavailableDecoderFactory) Available() bool       { return false }
-func (unavailableDecoderFactory) New() (Decoder, error) { return nil, ErrDecoderUnavailable }
-
-// EmbeddedDecoder returns the current production decoder factory. No backend
-// is selected until it satisfies the release, cancellation, and HIL gates in
-// DECODER_DECISION.md.
-func EmbeddedDecoder() DecoderFactory { return unavailableDecoderFactory{} }
+// EmbeddedDecoder decodes fresh, complete single-slice SPS/PPS/IDR access units
+// in a bounded WASI sandbox. It is not a motion-video P/B frame decoder.
+func EmbeddedDecoder() DecoderFactory { return embeddedDecoderFactory{} }

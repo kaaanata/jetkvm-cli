@@ -41,8 +41,8 @@ type ScreenshotObserver interface {
 }
 
 type Observation struct {
-	ID         string
-	Generation uint64
+	ID         string `json:"observation_id"`
+	Generation uint64 `json:"generation"`
 }
 
 type State string

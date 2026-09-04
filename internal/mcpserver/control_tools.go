@@ -18,6 +18,7 @@ import (
 	"github.com/kaaanata/jetkvm-cli/internal/domain"
 	"github.com/kaaanata/jetkvm-cli/internal/input"
 	"github.com/kaaanata/jetkvm-cli/internal/operation"
+	"github.com/kaaanata/jetkvm-cli/internal/video"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
@@ -91,10 +92,11 @@ type pointerClickInput struct {
 	ObservationID   string       `json:"observation_id" jsonschema:"Observation identity that the coordinates were derived from."`
 	X               int          `json:"x"`
 	Y               int          `json:"y"`
-	FrameWidth      int          `json:"frame_width"`
-	FrameHeight     int          `json:"frame_height"`
-	ObservationTime time.Time    `json:"observation_captured_at"`
+	FrameWidth      int          `json:"frame_width,omitempty"`
+	FrameHeight     int          `json:"frame_height,omitempty"`
+	ObservationTime time.Time    `json:"observation_captured_at,omitzero"`
 	Button          input.Button `json:"button,omitempty"`
+	ObserveAfter    bool         `json:"observe_after,omitzero"`
 }
 
 type actionInput struct {
@@ -111,6 +113,7 @@ type actionInput struct {
 }
 
 type runActionsInput struct {
+	ObserveAfter bool `json:"observe_after,omitzero"`
 	controlRefInput
 	OperationID     string        `json:"operation_id" jsonschema:"Caller supplied UUID used for exactly-once operation lookup."`
 	ObservationID   string        `json:"observation_id,omitempty"`
@@ -153,9 +156,10 @@ type operationOutput struct {
 }
 
 type runActionsOutput struct {
-	Operation operationReceiptOutput `json:"operation"`
-	Batch     input.BatchReceipt     `json:"batch"`
-	Existing  bool                   `json:"existing"`
+	Observation *automation.ScreenObservation `json:"observation,omitempty"`
+	Operation   operationReceiptOutput        `json:"operation"`
+	Batch       input.BatchReceipt            `json:"batch"`
+	Existing    bool                          `json:"existing"`
 }
 
 type powerStateOutput struct {
@@ -166,6 +170,7 @@ func (s *Server) registerControlTools(server *mcp.Server) {
 	if !s.controlToolsReady() {
 		return
 	}
+	s.registerPointerTools(server)
 	register := func(name string, tool *mcp.Tool, add func()) {
 		if s.toolAllowed(name) {
 			add()
@@ -284,10 +289,10 @@ func (s *Server) pointerClick(ctx context.Context, _ *mcp.CallToolRequest, in po
 		button = input.ButtonLeft
 	}
 	batch := input.Batch{
-		Observation: &input.ObservationBinding{ID: in.ObservationID, Generation: in.ExpectedGeneration, Width: in.FrameWidth, Height: in.FrameHeight, CapturedAt: in.ObservationTime},
+		Observation: &input.ObservationBinding{ID: in.ObservationID, Generation: in.ExpectedGeneration},
 		Actions:     []input.Action{{Type: input.ActionClick, X: in.X, Y: in.Y, Button: button}},
 	}
-	return s.executeActions(ctx, in.controlRefInput, in.OperationID, batch)
+	return s.executeActions(ctx, in.controlRefInput, in.OperationID, batch, in.ObserveAfter)
 }
 
 func (s *Server) runActions(ctx context.Context, req *mcp.CallToolRequest, in runActionsInput) (*mcp.CallToolResult, runActionsOutput, error) {
@@ -296,23 +301,24 @@ func (s *Server) runActions(ctx context.Context, req *mcp.CallToolRequest, in ru
 		return nil, runActionsOutput{}, err
 	}
 	if batchRequiresConfirmation(batch) {
-		return s.executeConfirmedActions(ctx, req, in.controlRefInput, in.OperationID, batch, "input.commit")
+		return s.executeConfirmedActions(ctx, req, in.controlRefInput, in.OperationID, batch, "input.commit", in.ObserveAfter)
 	}
-	return s.executeActions(ctx, in.controlRefInput, in.OperationID, batch)
+	return s.executeActions(ctx, in.controlRefInput, in.OperationID, batch, in.ObserveAfter)
 }
 
-func (s *Server) executeConfirmedActions(ctx context.Context, req *mcp.CallToolRequest, ref controlRefInput, operationID string, batch input.Batch, _ string) (*mcp.CallToolResult, runActionsOutput, error) {
+func (s *Server) executeConfirmedActions(ctx context.Context, req *mcp.CallToolRequest, ref controlRefInput, operationID string, batch input.Batch, _ string, observeAfter ...bool) (*mcp.CallToolResult, runActionsOutput, error) {
 	id, err := parseOperationID(operationID)
 	if err != nil {
 		return nil, runActionsOutput{}, err
 	}
 	request := automation.RunActionsRequest{DeviceID: ref.DeviceID, Ref: controlRef(ref), Scope: s.scope, OperationID: id, Batch: batch}
+	request.ObserveAfter = len(observeAfter) > 0 && observeAfter[0]
 	plan, err := s.automation.PrepareRunActions(request)
 	if err != nil {
 		return nil, runActionsOutput{}, publicAutomationError(err)
 	}
 	if !plan.Required {
-		return s.executeActions(ctx, ref, operationID, batch)
+		return s.executeActions(ctx, ref, operationID, batch, observeAfter...)
 	}
 	observationID := ""
 	if batch.Observation != nil {
@@ -326,22 +332,28 @@ func (s *Server) executeConfirmedActions(ctx context.Context, req *mcp.CallToolR
 	if pending != nil || err != nil {
 		return pending, runActionsOutput{}, err
 	}
-	return s.executeActions(confirmedCtx, ref, operationID, batch)
+	return s.executeActions(confirmedCtx, ref, operationID, batch, observeAfter...)
 }
 
-func (s *Server) executeActions(ctx context.Context, ref controlRefInput, operationID string, batch input.Batch) (*mcp.CallToolResult, runActionsOutput, error) {
+func (s *Server) executeActions(ctx context.Context, ref controlRefInput, operationID string, batch input.Batch, observeAfter ...bool) (*mcp.CallToolResult, runActionsOutput, error) {
 	id, err := parseOperationID(operationID)
 	if err != nil {
 		return nil, runActionsOutput{}, err
 	}
 	result, err := s.automation.RunActions(ctx, automation.RunActionsRequest{
 		DeviceID: ref.DeviceID, Ref: controlRef(ref), Scope: s.scope, OperationID: id, Batch: batch,
+		ObserveAfter: len(observeAfter) > 0 && observeAfter[0],
 	})
-	output := runActionsOutput{Operation: receiptView(result.Operation), Batch: result.Batch, Existing: result.Existing}
-	if err != nil {
-		return nil, output, publicAutomationError(err)
+	output := runActionsOutput{Operation: receiptView(result.Operation), Batch: result.Batch, Existing: result.Existing, Observation: result.Observation}
+	response := &mcp.CallToolResult{StructuredContent: output}
+	if result.Observation != nil {
+		response.Content = append(response.Content, screenImage(*result.Observation))
 	}
-	return nil, output, nil
+	if err != nil {
+		response.IsError = true
+		response.Content = append(response.Content, &mcp.TextContent{Text: publicAutomationError(err).Error()})
+	}
+	return response, output, nil
 }
 
 func (s *Server) getPowerState(ctx context.Context, _ *mcp.CallToolRequest, in controlRefInput) (*mcp.CallToolResult, powerStateOutput, error) {
@@ -465,10 +477,9 @@ func inputBatch(in runActionsInput) (input.Batch, error) {
 		}
 	}
 	batch := input.Batch{Actions: actions}
-	if in.ObservationID != "" || in.FrameWidth != 0 || in.FrameHeight != 0 || !in.ObservationTime.IsZero() {
+	if in.ObservationID != "" {
 		batch.Observation = &input.ObservationBinding{
-			ID: in.ObservationID, Generation: in.ExpectedGeneration, Width: in.FrameWidth,
-			Height: in.FrameHeight, CapturedAt: in.ObservationTime,
+			ID: in.ObservationID, Generation: in.ExpectedGeneration,
 		}
 	}
 	return batch, nil
@@ -543,15 +554,27 @@ func receiptView(receipt operation.Receipt) operationReceiptOutput {
 
 func publicAutomationError(err error) error {
 	switch {
-	case errors.Is(err, domain.ErrCapabilityUnavailable),
-		errors.Is(err, domain.ErrFirmwareUnsupported),
+	case errors.Is(err, video.ErrDecoderUnavailable), errors.Is(err, domain.ErrCapabilityUnavailable):
+		return fmt.Errorf("capability_unavailable: %w", domain.ErrCapabilityUnavailable)
+	case errors.Is(err, video.ErrFrameStale), errors.Is(err, input.ErrObservationStale):
+		return fmt.Errorf("observation_stale: %w", input.ErrObservationStale)
+	case errors.Is(err, video.ErrGenerationMismatch):
+		return fmt.Errorf("control_generation_mismatch: %w", control.ErrGenerationMismatch)
+	case errors.Is(err, video.ErrDecodeFailed):
+		return fmt.Errorf("unavailable: %w", video.ErrDecodeFailed)
+	case errors.Is(err, video.ErrDimensionsExceeded):
+		return fmt.Errorf("unavailable: %w", video.ErrDimensionsExceeded)
+	case errors.Is(err, video.ErrVideoUnavailable), errors.Is(err, video.ErrPipelineClosed):
+		return fmt.Errorf("unavailable: %w", video.ErrVideoUnavailable)
+	case errors.Is(err, context.DeadlineExceeded):
+		return fmt.Errorf("unavailable: %w", context.DeadlineExceeded)
+	case errors.Is(err, domain.ErrFirmwareUnsupported),
 		errors.Is(err, domain.ErrTakeoverDisabled),
 		errors.Is(err, control.ErrControlNotFound),
 		errors.Is(err, control.ErrControlExpired),
 		errors.Is(err, control.ErrGenerationMismatch),
 		errors.Is(err, operation.ErrConflict),
-		errors.Is(err, input.ErrInvalidAction),
-		errors.Is(err, input.ErrObservationStale):
+		errors.Is(err, input.ErrInvalidAction):
 		return err
 	default:
 		return errors.New("automation request failed")

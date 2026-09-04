@@ -26,14 +26,16 @@ func (d *fakeDecoder) Decode(ctx context.Context, _ DecodeRequest) (DecodedFrame
 func (d *fakeDecoder) Reset() error { d.resets.Add(1); return nil }
 func (d *fakeDecoder) Close() error { d.closed.Add(1); return nil }
 
-func TestEmbeddedDecoderIsNotAdvertised(t *testing.T) {
+func TestEmbeddedDecoderAvailable(t *testing.T) {
 	factory := EmbeddedDecoder()
-	if factory.Available() {
-		t.Fatal("unfinished decoder must not be advertised")
+	if !factory.Available() {
+		t.Fatal("embedded decoder must be available")
 	}
-	if _, err := factory.New(); !errors.Is(err, ErrDecoderUnavailable) {
-		t.Fatalf("New() error = %v, want decoder unavailable", err)
+	d, err := factory.New()
+	if err != nil {
+		t.Fatal(err)
 	}
+	t.Cleanup(func() { _ = d.Close() })
 }
 
 type fakePLI struct {
@@ -177,5 +179,118 @@ func TestPipelineCloseWakesWaiter(t *testing.T) {
 	}
 	if decoder.closed.Load() != 1 {
 		t.Fatalf("decoder close count = %d", decoder.closed.Load())
+	}
+}
+
+func TestAwaitNotBeforeRetriesPLIWithoutNotification(t *testing.T) {
+	requester := &fakePLI{called: make(chan struct{}, 8)}
+	p, err := NewPipeline("device-1", 1, Limits{MinPLIInterval: 10 * time.Millisecond}, &fakeDecoder{}, requester)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = p.Close() })
+	boundary := time.Now()
+	p.latest = &Observation{ID: "cached", CapturedAt: boundary, Frame: FrameMetadata{ReceivedAt: boundary.Add(-time.Second)}}
+	p.lastPLI = boundary // First attempt is rate limited, with no RTP to wake it.
+	ctx, cancel := context.WithTimeout(t.Context(), time.Second)
+	defer cancel()
+	result := make(chan *Observation, 1)
+	failure := make(chan error, 1)
+	go func() {
+		obs, err := p.AwaitObservation(ctx, ObserveRequest{Generation: 1, NotBefore: boundary})
+		if err != nil {
+			failure <- err
+		} else {
+			result <- obs
+		}
+	}()
+	for range 2 {
+		select {
+		case <-requester.called:
+		case obs := <-result:
+			t.Fatalf("returned pre-boundary frame: %+v", obs)
+		case err := <-failure:
+			t.Fatal(err)
+		case <-ctx.Done():
+			t.Fatal("rate-limited PLI was not retried")
+		}
+	}
+	p.mu.Lock()
+	p.latest = &Observation{ID: "new", CapturedAt: time.Now(), Frame: FrameMetadata{ReceivedAt: boundary}}
+	close(p.notify)
+	p.notify = make(chan struct{})
+	p.mu.Unlock()
+	select {
+	case obs := <-result:
+		if obs.ID != "new" {
+			t.Fatal(obs)
+		}
+	case err := <-failure:
+		t.Fatal(err)
+	case <-ctx.Done():
+		t.Fatal("new frame not delivered")
+	}
+}
+
+func TestAwaitFreshnessUsesSourceReceiveTime(t *testing.T) {
+	p, err := NewPipeline("device-1", 1, Limits{}, &fakeDecoder{}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = p.Close() })
+	now := time.Now()
+	p.latest = &Observation{CapturedAt: now, Frame: FrameMetadata{ReceivedAt: now.Add(-defaultFreshness - time.Second), DecodedAt: now}}
+	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Millisecond)
+	defer cancel()
+	if _, err := p.AwaitObservation(ctx, ObserveRequest{Generation: 1}); !errors.Is(err, ErrFrameStale) {
+		t.Fatalf("stale source accepted: %v", err)
+	}
+	if _, err := p.AwaitObservation(t.Context(), ObserveRequest{Generation: 1, Freshness: defaultFreshness + 2*time.Second}); err != nil {
+		t.Fatal(err)
+	}
+	// The default must not widen an explicitly stricter freshness requirement.
+	p.latest.Frame.ReceivedAt = time.Now().Add(-2 * time.Second)
+	ctx2, cancel2 := context.WithTimeout(t.Context(), 10*time.Millisecond)
+	defer cancel2()
+	if _, err := p.AwaitObservation(ctx2, ObserveRequest{Generation: 1, Freshness: time.Second}); !errors.Is(err, ErrFrameStale) {
+		t.Fatalf("explicit strict freshness was widened: %v", err)
+	}
+}
+
+func TestPipelineMatchesGeometry(t *testing.T) {
+	d := &fakeDecoder{image: image.NewNRGBA(image.Rect(0, 0, 32, 32))}
+	p, err := NewPipeline("device-1", 1, Limits{}, d, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = p.Close() })
+	if p.MatchesGeometry(1, 32, 32) {
+		t.Fatal("matched before decode")
+	}
+	stap := []byte{0x78, 0, 2, 0x67, 1, 0, 2, 0x68, 2, 0, 2, 0x65, 3}
+	if _, err := p.Push(t.Context(), packet(1, 1, 1, true, time.Now(), stap)); err != nil {
+		t.Fatal(err)
+	}
+	if !p.MatchesGeometry(1, 32, 32) || p.MatchesGeometry(2, 32, 32) {
+		t.Fatal("generation/geometry mismatch")
+	}
+	d.image = image.NewNRGBA(image.Rect(0, 0, 64, 32))
+	if _, err := p.Push(t.Context(), packet(1, 2, 2, true, time.Now(), stap)); err != nil {
+		t.Fatal(err)
+	}
+	if p.MatchesGeometry(1, 32, 32) || !p.MatchesGeometry(1, 64, 32) {
+		t.Fatal("old geometry remained valid")
+	}
+	if err := p.Reset(2); err != nil {
+		t.Fatal(err)
+	}
+	if p.MatchesGeometry(1, 64, 32) || p.MatchesGeometry(2, 64, 32) {
+		t.Fatal("reset retained geometry")
+	}
+	if err := p.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if p.MatchesGeometry(2, 64, 32) {
+		t.Fatal("closed pipeline matched")
 	}
 }

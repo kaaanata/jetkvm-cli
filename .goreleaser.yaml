@@ -43,6 +43,13 @@ archives:
       - LICENSE
       - NOTICE
       - README.md
+      - src: internal/video/DECODER_LICENSES.txt
+        dst: DECODER_LICENSES.txt
+      # Preserve nested codec dependency manifests for archive SBOM scanners.
+      - src: internal/video/wasmdecoder/go.mod
+        dst: decoder/go.mod
+      - src: internal/video/wasmdecoder/go.sum
+        dst: decoder/go.sum
 
 checksum:
   name_template: checksums.txt
@@ -55,14 +62,13 @@ checksum:
 
 signs:
   - id: checksums
-    cmd: cosign
+    cmd: sh
     artifacts: checksum
     signature: "${artifact}.sigstore.json"
     args:
-      - sign-blob
-      - "--yes"
-      - "--bundle=${signature}"
+      - scripts/sign-checksums.sh
       - "${artifact}"
+      - "${signature}"
 
 sboms:
   - id: archives

@@ -307,6 +307,7 @@ func (a *App) newRootCommand() *cobra.Command {
 		a.newSetupCommand(),
 		a.newUpdateCommand(),
 		a.newInputCommand(),
+		a.newScreenshotCommand(),
 		a.newPowerCommand(),
 		a.newMCPCommand(),
 	)

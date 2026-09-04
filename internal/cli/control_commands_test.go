@@ -54,14 +54,13 @@ func TestInputKeyMapsExplicitFenceAndOperation(t *testing.T) {
 	}
 }
 
-func TestInputRunRejectsUnknownJSONAndScreenshot(t *testing.T) {
+func TestInputRunRejectsUnknownJSON(t *testing.T) {
 	tests := []struct {
 		name string
 		json string
 		kind string
 	}{
 		{name: "unknown member", json: `[{"type":"keypress","keys":["ENTER"],"command":"rm"}]`, kind: "invalid_argument"},
-		{name: "screenshot unavailable", json: `[{"type":"screenshot"}]`, kind: "capability_unavailable"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -102,7 +101,7 @@ func TestDangerousActionsRequireActionTimeConfirmation(t *testing.T) {
 	})
 }
 
-func newControlTestApp(t *testing.T, terminal bool, automationService *fakeAutomation, issuer ConfirmationIssuer) (*strings.Builder, *strings.Builder, *App) {
+func newControlTestApp(t *testing.T, terminal bool, automationService AutomationService, issuer ConfirmationIssuer) (*strings.Builder, *strings.Builder, *App) {
 	t.Helper()
 	stdout := new(strings.Builder)
 	stderr := new(strings.Builder)

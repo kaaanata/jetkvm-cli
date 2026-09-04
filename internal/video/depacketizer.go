@@ -5,7 +5,6 @@ import (
 	"encoding/binary"
 	"fmt"
 	"slices"
-	"time"
 )
 
 const (
@@ -154,7 +153,7 @@ func orderedPackets(unit *pendingUnit, maxPackets int) ([]RTPPacket, bool) {
 
 func (d *Depacketizer) assemble(unit *pendingUnit, packets []RTPPacket) (*AccessUnit, error) {
 	var annexB []byte
-	var latest time.Time
+	firstReceived := packets[0].ReceivedAt
 	var hasSPS, hasPPS, keyframe bool
 	var fragmented bool
 	var fragmentType byte
@@ -180,8 +179,8 @@ func (d *Depacketizer) assemble(unit *pendingUnit, packets []RTPPacket) (*Access
 	}
 
 	for _, packet := range packets {
-		if packet.ReceivedAt.After(latest) {
-			latest = packet.ReceivedAt
+		if packet.ReceivedAt.Before(firstReceived) {
+			firstReceived = packet.ReceivedAt
 		}
 		payload := packet.Payload
 		typeID := payload[0] & naluTypeMask
@@ -253,7 +252,7 @@ func (d *Depacketizer) assemble(unit *pendingUnit, packets []RTPPacket) (*Access
 			return &AccessUnit{
 				Generation: unit.generation, RTPTime: unit.timestamp,
 				FirstSequence: packets[0].SequenceNumber, LastSequence: packets[len(packets)-1].SequenceNumber,
-				ReceivedAt: latest, AnnexB: annexB, HasSPS: hasSPS, HasPPS: hasPPS, Keyframe: true,
+				ReceivedAt: firstReceived, AnnexB: annexB, HasSPS: hasSPS, HasPPS: hasPPS, Keyframe: true,
 			}, nil
 		}
 		if len(d.sps)+len(d.pps)+2*len(annexBStartCode)+len(annexB) > d.limits.MaxAccessUnitBytes {
@@ -271,7 +270,7 @@ func (d *Depacketizer) assemble(unit *pendingUnit, packets []RTPPacket) (*Access
 	return &AccessUnit{
 		Generation: unit.generation, RTPTime: unit.timestamp,
 		FirstSequence: packets[0].SequenceNumber, LastSequence: packets[len(packets)-1].SequenceNumber,
-		ReceivedAt: latest, AnnexB: annexB, HasSPS: hasSPS, HasPPS: hasPPS,
+		ReceivedAt: firstReceived, AnnexB: annexB, HasSPS: hasSPS, HasPPS: hasPPS,
 		Keyframe: keyframe, Decodable: keyframe && hasSPS && hasPPS, ParameterSetsReused: reused,
 	}, nil
 }

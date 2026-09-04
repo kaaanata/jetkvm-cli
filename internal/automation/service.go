@@ -205,20 +205,34 @@ func (s *Service) RunActions(ctx context.Context, request RunActionsRequest) (Ru
 	if err != nil || (existing && receipt.Stage != operation.StageNotSent) {
 		return RunActionsResult{Operation: receipt, Existing: existing}, err
 	}
-	if _, err := s.registry.Get(ctx, request.DeviceID, request.Ref); err != nil {
+	snapshot, snapshotErr := s.registry.Get(ctx, request.DeviceID, request.Ref)
+	if snapshotErr != nil {
 		finalizeCtx, cancel := context.WithTimeoutCause(context.Background(), receiptFinalizeTimeout, context.DeadlineExceeded)
 		defer cancel()
-		terminal, terminalErr := s.finishNotSent(finalizeCtx, operationID, err)
-		return RunActionsResult{Operation: terminal}, errors.Join(err, terminalErr)
+		terminal, terminalErr := s.finishNotSent(finalizeCtx, operationID, snapshotErr)
+		return RunActionsResult{Operation: terminal}, errors.Join(snapshotErr, terminalErr)
 	}
 
 	var batchReceipt input.BatchReceipt
+	var observation *ScreenObservation
+	var observationErr error
 	started := false
 	confirmationBinding, confirmationRequired := s.inputConfirmationBinding(request, canonical)
 	executeErr := s.registry.Execute(ctx, request.DeviceID, request.Ref, "input", func(executeCtx context.Context, session control.Session) error {
 		adapter, err := automationSession(session)
 		if err != nil {
 			return err
+		}
+		if request.ObserveAfter || batchHasScreenshot(request.Batch) {
+			if _, err := s.authorize("jetkvm_observe", request.DeviceID, request.Scope, nil, false); err != nil {
+				return err
+			}
+			if snapshot.Handle == nil || !slices.Contains(snapshot.Handle.Capabilities, "video") {
+				return domain.ErrCapabilityUnavailable
+			}
+			if _, ok := session.(screenSession); !ok {
+				return domain.ErrCapabilityUnavailable
+			}
 		}
 		if confirmationRequired {
 			if s.confirmations == nil {
@@ -232,8 +246,25 @@ func (s *Service) RunActions(ctx context.Context, request RunActionsRequest) (Ru
 			_, markErr := s.operations.MarkSendStarted(sendCtx, operationID)
 			return markErr
 		})
+		if err == nil && (request.ObserveAfter || batchHasScreenshot(request.Batch)) {
+			var screen ScreenObservation
+			if captured, ok := session.(interface{ lastCapture() *ScreenObservation }); ok && batchHasScreenshot(request.Batch) {
+				observation = captured.lastCapture()
+			} else {
+				screen, observationErr = session.(screenSession).Observe(executeCtx, 0)
+				if observationErr == nil {
+					observation = &screen
+				}
+			}
+		}
 		return err
 	})
+	if executeErr != nil && started && batchReceipt.Status == input.BatchAccepted && batchReceipt.Neutralized {
+		// Cancellation during optional observation cannot rewrite an already
+		// accepted and neutralized input batch as ambiguous delivery.
+		observationErr = errors.Join(observationErr, executeErr)
+		executeErr = nil
+	}
 	if executeErr != nil {
 		finalizeCtx, cancel := context.WithTimeoutCause(context.Background(), receiptFinalizeTimeout, context.DeadlineExceeded)
 		defer cancel()
@@ -260,7 +291,7 @@ func (s *Service) RunActions(ctx context.Context, request RunActionsRequest) (Ru
 		return RunActionsResult{Operation: accepted, Batch: batchReceipt, Existing: existing}, err
 	}
 	completed, err := s.operations.Transition(finalizeCtx, operationID, operation.StageCompleted, acceptedPatch())
-	return RunActionsResult{Operation: completed, Batch: batchReceipt, Existing: existing}, err
+	return RunActionsResult{Operation: completed, Batch: batchReceipt, Existing: existing, Observation: observation}, errors.Join(err, observationErr)
 }
 
 // PrepareRunActions returns the exact input.commit binding, when the batch
@@ -584,7 +615,7 @@ func isFunctionKey(key string) bool {
 func controlCapabilityTool(capability string) (string, bool) {
 	switch capability {
 	case "video":
-		return "jetkvm_open_control", true
+		return "jetkvm_observe", true
 	case "input":
 		return "jetkvm_run_actions", true
 	case "power":
@@ -599,7 +630,7 @@ func validateAutomationBatch(batch input.Batch) error {
 	for _, action := range batch.Actions {
 		switch action.Type {
 		case input.ActionScreenshot:
-			return fmt.Errorf("%w: screenshot decoder is unavailable", domain.ErrCapabilityUnavailable)
+			// The bounded input executor permits screenshots only at the end.
 		case input.ActionWait:
 		default:
 			hasDeviceWrite = true
@@ -657,7 +688,8 @@ func canonicalRunActions(request RunActionsRequest) ([]byte, error) {
 		HandleID      control.HandleID `json:"control_handle"`
 		Generation    uint64           `json:"generation"`
 		Batch         input.Batch      `json:"batch"`
-	}{1, request.DeviceID, request.Ref.ID, request.Ref.ExpectedGeneration, request.Batch})
+		ObserveAfter  bool             `json:"observe_after,omitzero"`
+	}{1, request.DeviceID, request.Ref.ID, request.Ref.ExpectedGeneration, request.Batch, request.ObserveAfter})
 }
 
 func canonicalPowerAction(request PowerActionRequest) ([]byte, error) {

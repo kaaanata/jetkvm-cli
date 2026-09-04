@@ -39,8 +39,37 @@ jobs:
       - name: Vulnerability scan
         run: go run golang.org/x/vuln/cmd/govulncheck@v1.7.0 ./...
 
+      - name: Reproduce embedded decoder
+        run: |
+          sh scripts/build-decoder.sh
+          git diff --exit-code -- internal/video/decoder.wasm
+
+      - name: Scan embedded decoder dependencies
+        working-directory: internal/video/wasmdecoder
+        run: go run golang.org/x/vuln/cmd/govulncheck@v1.7.0 ./...
+
       - name: Test
         run: go test ./...
 
       - name: Test with race detector
         run: go test -race ./...
+
+  cross-build:
+    name: Single-file ${{ matrix.goos }}/${{ matrix.goarch }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        goos: [darwin, linux, windows]
+        goarch: [amd64, arm64]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - name: Build without external codec or CGo
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: "0"
+        run: go build -trimpath -o "$RUNNER_TEMP/jetkvm" ./cmd/jetkvm

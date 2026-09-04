@@ -84,6 +84,10 @@ func (s *AutomationService) RunActions(ctx context.Context, request automation.R
 	return s.next.RunActions(ctx, request)
 }
 
+func (s *AutomationService) Observe(ctx context.Context, request automation.ObserveRequest) (automation.ScreenObservation, error) {
+	return s.next.Observe(ctx, request)
+}
+
 func (s *AutomationService) PrepareRunActions(request automation.RunActionsRequest) (automation.ConfirmationPlan, error) {
 	return s.next.PrepareRunActions(request)
 }

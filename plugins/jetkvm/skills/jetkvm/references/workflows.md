@@ -11,7 +11,37 @@ Use these patterns with the live MCP tool schemas. Tool discovery remains author
 
 Read-only HTTP inspection must not open a WebRTC session.
 
-## One input action
+## Screenshot and visual input over MCP
+
+1. Open control with `requested_capabilities: ["video"]` for screenshots alone, or `["input", "video"]` for a visual input workflow. Honor any takeover confirmation.
+2. Call `jetkvm_observe` or `jetkvm_capture_screen` with the exact `device_id`, `control_handle`, and `expected_generation` returned by the server.
+3. Inspect the PNG ImageContent. Its structured observation supplies `observation_id`, `device_id`, `captured_at`, frame dimensions, `frame.generation`, and separate receive/decode timing.
+4. For coordinate input, call `jetkvm_pointer_move`, `jetkvm_pointer_click`, `jetkvm_pointer_double_click`, or `jetkvm_pointer_drag` with that observation ID and the same device, handle, and generation. Use the live schema for coordinates, path, button, and operation ID. `jetkvm_pointer_scroll` uses bounded deltas and does not need a coordinate binding.
+5. Set `observe_after: true` on a pointer tool or `jetkvm_run_actions` when the next decision needs a result image. Inspect the receipt even if the response is marked as an error; partial receipts and any available ImageContent remain meaningful.
+6. Close the owned handle after the workflow.
+
+The default coordinate binding lifetime is 30 seconds, measured from source frame receive time, not when the model receives the result or when decoding finishes. Capture freshness is separate: a capture requests a fresh post-call IDR frame. `decoded_at` records decode timing and does not renew the binding. Never restamp an observation or provide invented dimensions to extend its validity. If it expires, observe again on the still-valid handle; if the handle or generation changes, discard the old binding and acquire a new one.
+
+## Command-scoped CLI
+
+Replace `lab` and the example coordinates with the intended configured device and current target. These are independent examples, not a sequence to execute blindly.
+
+```sh
+jetkvm screenshot lab --file screen.png --output=json
+jetkvm input move lab --x 320 --y 240 --file after-move.png --output=json
+jetkvm input click lab --x 320 --y 240 --file after-click.png --output=json
+jetkvm input double-click lab --x 320 --y 240 --file after-double-click.png --output=json
+jetkvm input drag lab --path-json '[{"x":320,"y":240},{"x":480,"y":360}]' --file after-drag.png --output=json
+jetkvm input scroll lab --delta-y -3 --file after-scroll.png --output=json
+jetkvm input run lab --actions-json '[{"type":"keypress","keys":["ESC"]},{"type":"wait","duration_ms":250}]' \
+  --observe-after --file after-batch.png --output=json
+```
+
+`observe` aliases `screenshot`; both require `--file` and open only video capability. Each coordinate command opens its own input/video control, captures the binding there, executes, and closes. A prior PNG is a visual reference, never authorization or a binding transferable to a new process. Automatic capture does not identify UI elements or prove that a target stayed in place. Use the persistent MCP loop when a decision depends on the exact bound image.
+
+For input, `--file` implies post-action capture. `--observe-after` requires `--file` or explicit `--image-base64`; only the latter embeds PNG base64 in JSON. Choose file paths deliberately because existing contents are replaced. Capture or file-write failure after input is not permission to repeat the action. Preserve the operation receipt and report which input and capture steps succeeded.
+
+## One keyboard action
 
 1. Establish the exact stable device ID and capability.
 2. Open a control handle with only the capabilities needed for the request.
@@ -20,7 +50,7 @@ Read-only HTTP inspection must not open a WebRTC session.
 5. Inspect the operation receipt. Stop on ambiguity or a non-retry-safe result.
 6. Close the owned control handle when finished.
 
-Opening control may trigger confirmation because it can displace another session. Do not conceal that effect by opening a handle during a read-only task.
+Opening control may trigger confirmation because it can displace another session. HTTP status needs no control handle; a requested screenshot does require a video session and must disclose that takeover effect.
 
 ## Bounded multi-step input
 
@@ -31,12 +61,13 @@ Use `jetkvm_run_actions` only when the steps are deterministic from current trus
 - Do not put power or administration in an input batch.
 - Do not describe the batch as transactional; preserve partial receipts.
 - Acquire a new observation before making another visual decision.
+- Use `observe_after: true` for a post-action image, or include a `screenshot` action at a deterministic point. The core returns the batch's last captured screenshot; adapters do not replay actions to recover an image.
 
-If observation tooling is unavailable, limit work to actions whose target does not depend on unseen screen state, or ask the user for another trustworthy observation path.
+If observation tooling is unavailable, limit work to already-authorized actions whose target does not depend on unseen screen state. Report the missing capability rather than manufacturing a pointer binding.
 
 ## Pointer input
 
-Pointer calls require an observation ID, dimensions, capture time, device ID, and generation from one fresh server observation. Use those exact values. If the session generation, resolution, or acceptable freshness changes, discard the binding and observe again.
+The observation ID is the coordinate binding authority. Device ID, control handle, and expected generation fence the call; the server resolves dimensions and capture time from its issued observation. Legacy caller metadata does not create or renew a binding. Use a new observation when the binding expires or the screen changes enough to invalidate the intended target.
 
 ## Power operation
 

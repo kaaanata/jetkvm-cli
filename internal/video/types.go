@@ -32,7 +32,7 @@ const (
 	defaultMaxWidth    = 4096
 	defaultMaxHeight   = 2160
 	defaultMaxPixels   = 4096 * 2160
-	defaultFreshness   = 2 * time.Second
+	defaultFreshness   = 5 * time.Second
 	defaultPLIInterval = 250 * time.Millisecond
 )
 
@@ -157,4 +157,8 @@ type Observation struct {
 type ObserveRequest struct {
 	Generation uint64
 	Freshness  time.Duration
+	// NotBefore requires the frame's first RTP receive timestamp to be at or
+	// after this boundary. Set it at capture invocation for observe-after.
+	// Zero preserves the normal cached-frame behavior.
+	NotBefore time.Time
 }

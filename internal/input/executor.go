@@ -27,19 +27,19 @@ const (
 )
 
 type ActionReceipt struct {
-	Index  int
-	Type   ActionType
-	Status ActionStatus
-	Error  string
+	Index  int          `json:"index"`
+	Type   ActionType   `json:"type"`
+	Status ActionStatus `json:"status"`
+	Error  string       `json:"error,omitzero"`
 }
 
 type BatchReceipt struct {
-	Generation     uint64
-	Status         BatchStatus
-	Actions        []ActionReceipt
-	Observation    Observation
-	Neutralized    bool
-	CleanupFailure string
+	Generation     uint64          `json:"generation"`
+	Status         BatchStatus     `json:"status"`
+	Actions        []ActionReceipt `json:"actions"`
+	Observation    Observation     `json:"observation,omitzero"`
+	Neutralized    bool            `json:"neutralized"`
+	CleanupFailure string          `json:"cleanup_failure,omitzero"`
 }
 
 func (l *Lease) RunActions(ctx context.Context, batch Batch) (receipt BatchReceipt, err error) {

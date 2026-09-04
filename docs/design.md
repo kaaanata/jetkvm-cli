@@ -1,6 +1,6 @@
 # JetKVM CLI and MCP Product Design
 
-Status: implemented control, installer, updater, and agent-setup baseline
+Status: implemented control, PNG observation, installer, updater, and agent-setup baseline
 
 Date: 2026-09-05
 
@@ -48,7 +48,7 @@ All repository documentation, examples, plugin metadata, and skill content are E
 | Confirmation | One-time proof bound to the complete effect and target |
 | Retry | Never retry automatically after the physical send boundary becomes ambiguous |
 | Receipts | Operation receipts retained 30 days; security audit retained 90 days |
-| Screenshot | Withheld until a production embedded decoder satisfies single-binary releases |
+| Screenshot | Embedded H.264 decode to PNG; CLI files and MCP ImageContent with server-owned binding metadata |
 | CLI framework | Cobra command tree; Charmbracelet Log on stderr |
 | Machine output | Stable JSON; non-TTY defaults to JSON; stdout is result-only |
 | Release | Release Please creates SemVer tags; GoReleaser publishes artifacts and provenance |
@@ -108,6 +108,7 @@ Use a bounded ordered `actions[]` vocabulary. The server executes deterministic 
 - Pin and verify the stable hardware identity.
 - Read source-attributed device status and capability state without opening WebRTC.
 - Open a takeover-policy-governed control handle.
+- Capture fresh PNG observations through a video-capable control handle.
 - Send validated keyboard and pointer input with terminal neutralization.
 - Execute one to sixteen deterministic input actions within a bounded duration.
 - Read and operate a compatible ATX extension when explicitly enabled.
@@ -238,15 +239,23 @@ The MCP server uses closed input and output schemas and structured content. Curr
 | `jetkvm_open_control` | control | Open a fenced WebRTC control handle under takeover policy |
 | `jetkvm_get_control` | read | Read a handle without creating a session |
 | `jetkvm_close_control` | control | Neutralize input and close an owned handle |
+| `jetkvm_observe` | observe | Capture a PNG and binding metadata from an existing video handle |
+| `jetkvm_capture_screen` | observe | Capture the screen using the same observation contract |
 | `jetkvm_key_press` | input | Press and release one validated key |
 | `jetkvm_key_combo` | input | Press and release one bounded chord |
 | `jetkvm_type_text` | input | Type validated US-layout text |
 | `jetkvm_pointer_click` | input | Click a point bound to a fresh observation |
+| `jetkvm_pointer_move` | input | Move to an observation-bound point |
+| `jetkvm_pointer_double_click` | input | Double-click an observation-bound point |
+| `jetkvm_pointer_drag` | input | Drag through a bounded observation-bound path |
+| `jetkvm_pointer_scroll` | input | Send a bounded horizontal or vertical scroll delta |
 | `jetkvm_run_actions` | input | Execute a bounded deterministic action batch |
 | `jetkvm_get_power_state` | read | Read supported ATX LED state |
 | `jetkvm_power_action` | power | Execute a non-retryable press, reset, or hold |
 
-Screenshot/observation tools are not registered until a production embedded H.264 decoder passes compatibility and release gates. The server must return capability unavailability rather than an empty image, stale placeholder, or external FFmpeg dependency.
+Observation tools are registered when the injected decoder capability and observer service are available, subject to the tool policy ceiling. They require `device_id`, `control_handle`, and non-zero `expected_generation`; they do not open a new session. Results contain official SDK `ImageContent` with PNG bytes and structured observation metadata. Missing or unsupported video returns an error, never a placeholder image or an external FFmpeg requirement.
+
+Pointer tools and `jetkvm_run_actions` accept `observe_after`. The adapter returns any available image alongside the structured operation and batch receipt. On partial failure it sets the MCP error result while preserving that receipt and any returned observation. An error does not imply that the action was unsent or that a post-action image exists.
 
 ### Transport
 
@@ -256,9 +265,15 @@ Remote HTTP requires a separate future threat model covering TLS termination, ca
 
 ## 10. Input and computer-use semantics
 
-The action vocabulary includes move, click, double-click, drag, scroll, keypress, type text, wait, and screenshot as a reserved capability. A batch contains at most 16 actions and runs for at most 15 seconds. It contains input and wait actions only; power, media, and administration are separate risk domains.
+The action vocabulary includes `move`, `click`, `double_click`, `drag`, `scroll`, `keypress`, `type`, `wait`, and `screenshot`. A batch contains at most 16 actions and runs for at most 15 seconds. Input, waits, and screenshots can share a batch; power, media, and administration remain separate risk domains. Screenshots and post-action observation require video capability and observation permission in addition to the input batch's permission. The core supplies the last screenshot captured by a batch; adapters do not repeat the batch to obtain an image.
 
-Pointer actions require an observation binding containing observation ID, device ID, generation, dimensions, and capture time. A binding is invalid after generation replacement, expiry, or unacceptable staleness. Coordinates are validated against the exact frame dimensions.
+Coordinate actions (move, click, double-click, and drag) require a fresh observation binding. The session registers the observation ID, stable device ID, frame generation, dimensions, and capture time. MCP callers supply `observation_id` as the binding authority together with their device, handle, and expected generation; legacy caller dimensions and capture-time fields do not establish or replace a binding. The core resolves the issued ID against the same session's metadata and validates coordinates against its frame dimensions. Generation replacement, expiry, or unacceptable staleness invalidates the binding. Scroll uses bounded deltas rather than pixel coordinates.
+
+Normal CLI coordinate commands capture on their own temporary control before constructing the action batch. They never rebind a caller's screenshot to a newly opened control. MCP keeps the handle alive across observe/action calls, enabling decisions based on the exact returned image. A fresh frame binding proves coordinate provenance, not the semantic identity or continued position of a UI element.
+
+The default coordinate binding lifetime is 30 seconds from the source frame's first RTP receive timestamp. `captured_at` uses this source receive time, also recorded as `frame.received_at`; `frame.decoded_at` separately records decode completion. Decoding, transport to the model, and model reasoning consume the binding lifetime rather than resetting it. Clients must not restamp metadata. An expired binding requires a new observation. Capture freshness is a separate bound: capture requests a fresh post-call IDR frame and validates source receive time against its freshness requirement.
+
+The default capture freshness bound is 5 seconds to accommodate IDR delivery and decoding. Callers can request a stricter bound with CLI `--freshness` or MCP `freshness_ms`; zero selects the service default. This setting does not extend the 30-second coordinate binding lifetime or replace source timestamps with decode completion time.
 
 Keyboard and pointer share one exclusive input lease. Every terminal path attempts the same neutralization sequence:
 
@@ -314,6 +329,8 @@ Before `send_started`, a deterministic validation or transport failure may be re
 
 Reusing an operation ID with the same digest returns the existing receipt. Reusing it with different arguments is a conflict. Batch receipts identify the last completed action and the action that failed; completed actions are never rolled back or described as atomic.
 
+CLI JSON and MCP structured results use explicit snake_case tags throughout the nested batch receipt, including `input.BatchReceipt`, `input.ActionReceipt`, and `input.Observation`. Clients must consume the declared JSON fields rather than Go field names: for example, `batch.generation`, `batch.actions`, `batch.neutralized`, and `batch.cleanup_failure`, with action fields `index`, `type`, `status`, and optional `error`. The nested batch observation is a binding receipt, distinct from the separately returned PNG observation metadata and image payload.
+
 Transport acceptance, observed device state, and physical outcome are separate claims. HID acceptance does not prove that BIOS or the operating system reacted. ATX RPC acceptance does not prove that a motherboard completed a power transition.
 
 ## 13. Credentials, network, and storage
@@ -330,8 +347,8 @@ Default retention:
 |---|---:|
 | Operation receipts | 30 days |
 | Security audit | 90 days |
-| Observation metadata | 24 hours |
-| Screenshot bytes | Not persisted |
+| Coordinate binding metadata | Latest 16 issued observations per live session; default usable age 30 seconds |
+| Screenshot bytes | Not persisted by the core; CLI writes only to an explicitly requested file |
 
 ## 14. CLI contract
 
@@ -340,6 +357,10 @@ Cobra is the command-tree and parsing authority. Charmbracelet Log is used for h
 Stdout contains one result document and no progress, prompts, or logs. JSON fields use stable snake_case names. CLI exit kinds and MCP error kinds share one taxonomy, including invalid input, not found, policy denied, confirmation required, capability unavailable, stale generation, conflict, delivery ambiguous, action required, and internal failure.
 
 Commands call the automation service rather than JetKVM transports directly. Setup and update follow the same machine-readable receipt model.
+
+`jetkvm screenshot <device> --file screen.png` (alias `observe`) opens a command-scoped control with only `video` capability, captures a PNG, writes the explicit path, and closes the control. It does not require input permission. Opening the video session still follows takeover policy.
+
+`jetkvm input move|click|double-click|drag` opens `input` + `video` and obtains its coordinate binding on that same control. Scroll and keyboard commands need only `input` unless capture is requested. `--file after.png` implies post-action observation; `--observe-after` requires `--file` or explicit `--image-base64`. JSON reports observation metadata and the saved path, with image bytes omitted unless base64 is explicitly requested. File writes replace the specified path. A file-write or capture failure after input must not cause automatic input replay. See the [README examples](../README.md#screenshots-and-input) for concrete commands.
 
 ## 15. Installation and update
 
@@ -403,7 +424,7 @@ The skill teaches target selection, safe control lifecycle, observation-bound po
 
 ## 18. Video and multimodal boundary
 
-The intended observation pipeline is RTP reception, depacketization, frame assembly, embedded decode, freshness validation, observation registration, and MCP ImageContent plus structured metadata. The decoder must support cancellation, bounds, deterministic cleanup, supported release targets, and single-file distribution.
+The observation pipeline receives H.264 RTP, depacketizes and assembles frames, decodes with the embedded decoder, validates freshness, and registers session-owned observation metadata. The automation service returns PNG bytes separately from JSON metadata. CLI writes the requested file or explicitly requested base64; MCP emits ImageContent plus structured metadata. The decoder must support cancellation, bounds, deterministic cleanup, supported release targets, and single-file distribution.
 
 System FFmpeg is not a production dependency. A decoder-unavailable build does not register screenshot tools. Images, OCR, serial text, and attached-host output are untrusted data and cannot expand permission, confirm an action, select a new device, or override policy.
 
@@ -432,6 +453,17 @@ Hardware tests must state the exact evidence boundary. Device RPC acceptance, ho
 
 Public errors are typed, stable, and safe to expose. Internal transport details and secrets are logged only when safe and never copied into public results. Every operation records target identity, effect, policy revision, stage, delivery, verification, timing, and terminal claim.
 
+Video failures use the existing adapter taxonomy rather than a generic internal error:
+
+| Video condition | CLI kind / MCP public error category |
+|---|---|
+| Missing decoder or unavailable capability | `capability_unavailable` |
+| No frame, closed pipeline, decode failure, or oversized decoded frame | `unavailable` |
+| Stale frame or expired coordinate binding | `observation_stale` |
+| Replaced video generation | `control_generation_mismatch` |
+
+Specific video failures retain their category when joined with a capture timeout. These categories do not authorize retry of preceding input, and structured operation receipts remain the delivery authority. MCP exposes sanitized error text without internal decoder details.
+
 Metrics use bounded labels such as operation class, result kind, firmware compatibility class, and transport. They never use device ID, alias, origin, operation ID, observation ID, credential reference, typed text, or screen-derived content as metric labels.
 
 Health checks distinguish:
@@ -451,7 +483,7 @@ No single green health check is presented as proof of end-to-end physical contro
 
 1. **Control baseline:** configuration, identity, policy, HTTP status, WebRTC/RPC/HID, actors, receipts, CLI, MCP, and bounded HIL.
 2. **Product onboarding:** release installers, installation receipts, self-update ownership, Codex/Claude plugins, canonical skill, setup/doctor/uninstall, and concise public documentation.
-3. **Multimodal observation:** production embedded H.264 decoder, fresh screenshot observations, ImageContent, pointer bindings, and host-side HIL.
+3. **Multimodal observation:** implemented embedded H.264 decode, fresh PNG observations, ImageContent, and session-owned pointer bindings. Cross-platform decoder and host-side HIL evidence remain separate verification boundaries; see the [decoder decision](../internal/video/DECODER_DECISION.md) and [HIL records](hil-inventory.md).
 4. **Additional hardware:** ATX/DC fixtures, virtual media threat model, and any Cloud design as separately reviewed scopes.
 
 ## 22. Non-negotiable invariants

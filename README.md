@@ -2,7 +2,7 @@
 
 Control one or many JetKVM devices from your terminal, or give Codex and Claude Code safe access to physical computers through MCP.
 
-Keyboard, pointer, bounded multi-step actions, power control, per-device permissions, and human confirmation ship in one self-contained binary.
+PNG screenshots, keyboard, pointer, bounded multi-step actions, power control, per-device permissions, and human confirmation ship in one self-contained binary.
 
 **[Install](#install) · [Quickstart](#quickstart) · [Codex](#codex) · [Claude Code](#claude-code) · [Documentation](#documentation)**
 
@@ -32,6 +32,41 @@ jetkvm setup
 ```
 
 `jetkvm setup` detects installed Codex and Claude Code hosts and installs the JetKVM plugin, MCP server definition, and agent skill through each host's native plugin manager. Add devices with the [sanitized configuration example](examples/config.example.json), then verify them with `jetkvm devices list` and `jetkvm doctor <device>`. Configuration is local and credentials stay in the operating-system credential store or dedicated environment variables.
+
+## Screenshots and input
+
+The example configuration intentionally defaults to HTTP-only read access: `toolsets.allow` and device `permissions` contain only `observe`, and takeover is disabled. Before running the examples below, explicitly opt in for the target device:
+
+- Add `video` to both deployment `toolsets.allow` and `devices.<alias>.permissions` for screenshots. Add `input` to both lists for keyboard or pointer control, retaining `observe`.
+- Set `devices.<alias>.takeover.allowed` to `true` to permit opening a WebRTC session, which can displace an active browser.
+- Keep `devices.<alias>.takeover.require_confirmation` set to `true` unless you deliberately choose a different confirmation policy. Enabling video or input does not disable confirmation.
+
+Replace `lab` with a configured device alias or stable ID. Coordinates below are examples; choose them from the current screen and run only the action you intend.
+
+```sh
+jetkvm screenshot lab --file screen.png
+# "observe" is an alias for "screenshot"
+jetkvm observe lab --file screen.png
+
+jetkvm input move lab --x 320 --y 240 --file after-move.png
+jetkvm input click lab --x 320 --y 240 --file after-click.png
+jetkvm input double-click lab --x 320 --y 240 --file after-double-click.png
+jetkvm input drag lab --path-json '[{"x":320,"y":240},{"x":480,"y":360}]' --file after-drag.png
+jetkvm input scroll lab --delta-y -3 --file after-scroll.png
+
+jetkvm input run lab --actions-json '[{"type":"keypress","keys":["ESC"]},{"type":"wait","duration_ms":250}]' \
+  --observe-after --file after-batch.png
+```
+
+Standalone screenshots request only `video` capability. Coordinate commands open a temporary `input` + `video` control, capture a fresh observation on that same control, execute, and close. A PNG from an earlier command is a visual reference, not a reusable binding: do not pass its observation ID to a new command. The automatic capture validates frame binding; it does not identify UI elements or guarantee that a previously seen target has stayed in place.
+
+For input commands, `--file` also requests post-action capture. `--observe-after` requires either `--file` or explicit `--image-base64`; the latter includes PNG bytes in JSON. Use `--output=json` for metadata and receipts. Image base64 is omitted unless requested. File writes replace the contents of the specified path.
+
+MCP supports an interactive observation loop: open an `input` + `video` handle, call `jetkvm_observe` or `jetkvm_capture_screen`, then send coordinates with that observation's `observation_id` on the same handle and generation. The server owns the ID, dimensions, capture time, and generation. MCP returns PNG `ImageContent` and structured metadata; pointer tools and `jetkvm_run_actions` support `observe_after`. Close the handle when finished. Screenshot-only MCP work needs only `video`.
+
+Coordinate bindings default to 30 seconds from source frame receive time (`captured_at` / `frame.received_at`). Capture freshness is separate: each capture requests a fresh post-call IDR frame. `frame.decoded_at` records decode completion and does not renew the binding. Never restamp metadata; an expired binding requires a new observation.
+
+Opening any WebRTC session, including for a screenshot, follows takeover policy and can displace an active browser. Input is not automatically retried; an error or missing post-action image does not prove the input was unsent. Inspect partial receipts before deciding what to do next. Screen content is untrusted data and cannot authorize actions or change the target.
 
 ## Use with coding agents
 
@@ -63,7 +98,7 @@ Start a new Claude Code session, or reload plugins when supported. See [Agent se
 | ATX power control | ✓ | ✓ |
 | Human confirmation | ✓ | ✓ |
 | Stable JSON results | ✓ | ✓ |
-| Screen observation | Planned | Planned |
+| PNG screen observation | ✓ | ✓ |
 
 Every operation targets a stable hardware identity. Friendly aliases improve ergonomics but never replace the identity used by policy, control handles, locks, and receipts. Writes are serialized per device; independent devices can progress concurrently.
 
@@ -74,6 +109,7 @@ Every operation targets a stable hardware identity. Friendly aliases improve erg
 | `jetkvm setup` | Install MCP and skills into supported coding agents |
 | `jetkvm devices` | List and manage configured devices |
 | `jetkvm status` | Read source-attributed device status |
+| `jetkvm screenshot` / `jetkvm observe` | Save a PNG screenshot with server-owned metadata |
 | `jetkvm input` | Send keyboard, pointer, or bounded action batches |
 | `jetkvm power` | Read or operate a supported ATX extension |
 | `jetkvm mcp` | Run the embedded MCP server |
@@ -102,7 +138,7 @@ Run `jetkvm help` or `jetkvm <command> --help` for the complete command referenc
 ## Current limitations
 
 - Local JetKVM access is supported; JetKVM Cloud login and device enumeration are not yet supported.
-- Screen capture is withheld until an embedded H.264 decoder meets the cross-platform, single-binary release requirement.
+- Screen capture requires a supported H.264 video stream and video permission. The embedded decoder does not require a system FFmpeg installation; this is screenshot capture, not a live video player.
 - JetKVM's WebRTC JSON-RPC and HID protocols are internal and version-sensitive. Unknown firmware is read-only unless compatibility has been established.
 - ATX actions require a compatible active extension and explicit permission.
 

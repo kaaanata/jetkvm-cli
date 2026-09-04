@@ -24,7 +24,7 @@ func TestCoordinateActionsRequireFreshBoundObservation(t *testing.T) {
 	for name, mutate := range map[string]func(*Batch){
 		"missing":    func(batch *Batch) { batch.Observation = nil },
 		"generation": func(batch *Batch) { batch.Observation.Generation = 6 },
-		"stale":      func(batch *Batch) { batch.Observation.CapturedAt = now.Add(-3 * time.Second) },
+		"stale":      func(batch *Batch) { batch.Observation.CapturedAt = now.Add(-limits.MaxObservationAge - time.Second) },
 		"bounds":     func(batch *Batch) { batch.Actions[0].X = 1920 },
 	} {
 		t.Run(name, func(t *testing.T) {

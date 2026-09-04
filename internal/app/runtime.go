@@ -25,6 +25,7 @@ import (
 	"github.com/kaaanata/jetkvm-cli/internal/operation"
 	"github.com/kaaanata/jetkvm-cli/internal/policy"
 	"github.com/kaaanata/jetkvm-cli/internal/store"
+	"github.com/kaaanata/jetkvm-cli/internal/video"
 )
 
 // Runtime is the one composition root shared by CLI commands and MCP tools.
@@ -171,6 +172,7 @@ func Load(ctx context.Context, path, version string) (_ *Runtime, err error) {
 	applicationAutomation := newAutomationService(automationService, cfg)
 	mcp, err := mcpserver.New(authorized, mcpserver.Options{
 		Version:            version,
+		DecoderAvailable:   video.EmbeddedDecoder().Available(),
 		AllowedTools:       allowedTools,
 		Automation:         applicationAutomation,
 		ConfirmationIssuer: mcpConfirmation,

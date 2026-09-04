@@ -15,8 +15,8 @@ func TestDepacketizerReordersFUAAndTracksIDR(t *testing.T) {
 	now := time.Now()
 	packets := []RTPPacket{
 		packet(7, 101, 99, false, now, []byte{0x7c, 0x05, 0x22}),
-		packet(7, 100, 99, false, now, []byte{0x7c, 0x85, 0x11}),
-		packet(7, 102, 99, true, now, []byte{0x7c, 0x45, 0x33}),
+		packet(7, 100, 99, false, now.Add(time.Millisecond), []byte{0x7c, 0x85, 0x11}),
+		packet(7, 102, 99, true, now.Add(2*time.Millisecond), []byte{0x7c, 0x45, 0x33}),
 	}
 	for index, input := range packets {
 		unit, err := d.Push(input)
@@ -27,6 +27,9 @@ func TestDepacketizerReordersFUAAndTracksIDR(t *testing.T) {
 			t.Fatalf("Push(%d) emitted early", index)
 		}
 		if index == len(packets)-1 {
+			if unit != nil && !unit.ReceivedAt.Equal(now) {
+				t.Fatalf("ReceivedAt = %v, want earliest RTP arrival %v", unit.ReceivedAt, now)
+			}
 			if unit == nil || !unit.Keyframe || unit.Decodable {
 				t.Fatalf("unit = %+v", unit)
 			}

@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"encoding/base64"
 	json "encoding/json/v2"
 	"errors"
 	"fmt"
@@ -249,6 +250,14 @@ func (a *App) newInputCommand() *cobra.Command {
 		a.newInputRunCommand(),
 		a.newInputReleaseCommand(),
 	)
+	for _, child := range command.Commands() {
+		if child.Name() == "release" {
+			continue
+		}
+		child.Flags().Bool("observe-after", false, "capture the screen after the action batch; requires --file or --image-base64")
+		child.Flags().String("file", "", "save the resulting screenshot as PNG; implies --observe-after")
+		child.Flags().Bool("image-base64", false, "include screenshot PNG as base64 in JSON; implies --observe-after")
+	}
 	return command
 }
 
@@ -315,14 +324,10 @@ func (f observationFlags) binding(generation uint64, required bool) (*input.Obse
 	if f.id == "" && f.width == 0 && f.height == 0 && f.capturedAt == "" && !required {
 		return nil, nil
 	}
-	if f.id == "" || f.width <= 0 || f.height <= 0 || f.capturedAt == "" {
-		return nil, usageError(errors.New("coordinate actions require --observation-id, --frame-width, --frame-height, and --observation-captured-at"))
+	if f.id == "" {
+		return nil, nil
 	}
-	capturedAt, err := time.Parse(time.RFC3339Nano, f.capturedAt)
-	if err != nil {
-		return nil, usageError(fmt.Errorf("invalid --observation-captured-at: %w", err))
-	}
-	return &input.ObservationBinding{ID: f.id, Generation: generation, Width: f.width, Height: f.height, CapturedAt: capturedAt}, nil
+	return &input.ObservationBinding{ID: f.id, Generation: generation}, nil
 }
 
 func (a *App) newPointerCommand(name, short string, actionType input.ActionType) *cobra.Command {
@@ -624,6 +629,13 @@ func (a *App) boundOperation(ctx context.Context, selector string, flags boundFl
 }
 
 func (a *App) runInputActions(command *cobra.Command, selector string, flags boundFlags, actions []input.Action, observation *input.ObservationBinding, _ confirmationRisk) error {
+	observeAfter, _ := command.Flags().GetBool("observe-after")
+	file, _ := command.Flags().GetString("file")
+	includeImage, _ := command.Flags().GetBool("image-base64")
+	if observeAfter && file == "" && !includeImage {
+		return usageError(errors.New("--observe-after requires --file or --image-base64"))
+	}
+	observeAfter = observeAfter || file != "" || includeImage
 	service, err := a.automation()
 	if err != nil {
 		return err
@@ -636,16 +648,42 @@ func (a *App) runInputActions(command *cobra.Command, selector string, flags bou
 	if err != nil {
 		return err
 	}
+	needsObservation, needsVideo := false, observeAfter
+	for _, action := range actions {
+		switch action.Type {
+		case input.ActionMove, input.ActionClick, input.ActionDoubleClick, input.ActionDrag:
+			needsObservation, needsVideo = true, true
+		case input.ActionScreenshot:
+			needsVideo = true
+		}
+	}
+	ref, supplied, err := flags.optionalRef()
+	if err != nil {
+		return err
+	}
+	if !supplied && observation != nil {
+		return usageError(errors.New("--observation-id requires an existing --handle; temporary controls capture their own observation"))
+	}
 	execute := func(executionContext context.Context, ref control.Ref) error {
 		boundObservation := observation
-		if observation != nil {
-			copy := *observation
-			copy.Generation = ref.ExpectedGeneration
-			boundObservation = &copy
+		if needsObservation && boundObservation == nil {
+			observer, ok := service.(Observer)
+			if !ok {
+				return domain.ErrCapabilityUnavailable
+			}
+			screen, err := observer.Observe(executionContext, automation.ObserveRequest{
+				ControlRequest: automation.ControlRequest{DeviceID: deviceID, Ref: ref, Scope: policy.Scope{}},
+			})
+			if err != nil {
+				return err
+			}
+			meta := screen.Observation
+			boundObservation = &input.ObservationBinding{ID: meta.ID, Generation: meta.Frame.Generation, Width: meta.Frame.Width, Height: meta.Frame.Height, CapturedAt: meta.CapturedAt}
 		}
 		request := automation.RunActionsRequest{
 			DeviceID: deviceID, Ref: ref, Scope: policy.Scope{}, OperationID: operationID,
-			Batch: input.Batch{Observation: boundObservation, Actions: slices.Clone(actions)},
+			Batch:        input.Batch{Observation: boundObservation, Actions: slices.Clone(actions)},
+			ObserveAfter: observeAfter,
 		}
 		plan, err := service.PrepareRunActions(request)
 		if err != nil {
@@ -660,21 +698,30 @@ func (a *App) runInputActions(command *cobra.Command, selector string, flags bou
 				return err
 			}
 		}
-		result, err := service.RunActions(executionContext, request)
-		if err != nil {
-			return err
-		}
+		result, runErr := service.RunActions(executionContext, request)
 		view := makeRunActionsResult(result)
-		return a.writeResult("input.run", view, func(w io.Writer) error { return writeRunActionsText(w, view) })
-	}
-	ref, supplied, err := flags.optionalRef()
-	if err != nil {
-		return err
+		if result.Observation != nil {
+			view.Observation, err = screenResult(*result.Observation, file)
+			if includeImage {
+				view.Observation.ImageBase64 = base64.StdEncoding.EncodeToString(result.Observation.Data)
+			}
+			if err != nil {
+				runErr = errors.Join(runErr, err)
+			}
+		}
+		if runErr != nil && result.Operation.ID == uuid.Nil() {
+			return runErr
+		}
+		return errors.Join(runErr, a.writeResult("input.run", view, func(w io.Writer) error { return writeRunActionsText(w, view) }))
 	}
 	if supplied {
 		return execute(command.Context(), ref)
 	}
-	return a.withEphemeralControl(command.Context(), deviceID, []string{"input"}, execute)
+	capabilities := []string{"input"}
+	if needsVideo {
+		capabilities = append(capabilities, "video")
+	}
+	return a.withEphemeralControl(command.Context(), deviceID, capabilities, execute)
 }
 
 func (a *App) confirm(ctx context.Context, request ConfirmationRequest) (context.Context, error) {
@@ -840,9 +887,6 @@ func decodeActions(data []byte) ([]input.Action, bool, error) {
 		if err != nil {
 			return nil, false, usageError(fmt.Errorf("action %d: %w", index, err))
 		}
-		if action.Type == input.ActionScreenshot {
-			return nil, false, fmt.Errorf("%w: screenshot decoder is unavailable", domain.ErrCapabilityUnavailable)
-		}
 		needsObservation = needsObservation || coordinate
 		actions = append(actions, action)
 	}
@@ -973,9 +1017,10 @@ func makeOperationReceiptResult(receipt operation.Receipt) operationReceiptResul
 }
 
 type runActionsResult struct {
-	Operation operationReceiptResult `json:"operation"`
-	Batch     input.BatchReceipt     `json:"batch"`
-	Existing  bool                   `json:"existing,omitzero"`
+	Observation *screenshotResult      `json:"observation,omitempty"`
+	Operation   operationReceiptResult `json:"operation"`
+	Batch       input.BatchReceipt     `json:"batch"`
+	Existing    bool                   `json:"existing,omitzero"`
 }
 
 func makeRunActionsResult(result automation.RunActionsResult) runActionsResult {

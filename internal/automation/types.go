@@ -10,6 +10,7 @@ import (
 	"github.com/kaaanata/jetkvm-cli/internal/input"
 	"github.com/kaaanata/jetkvm-cli/internal/operation"
 	"github.com/kaaanata/jetkvm-cli/internal/policy"
+	"github.com/kaaanata/jetkvm-cli/internal/video"
 )
 
 type OpenControlRequest struct {
@@ -28,17 +29,31 @@ type ControlRequest struct {
 }
 
 type RunActionsRequest struct {
-	DeviceID    domain.DeviceID
-	Ref         control.Ref
-	Scope       policy.Scope
-	OperationID uuid.UUID
-	Batch       input.Batch
+	DeviceID     domain.DeviceID
+	Ref          control.Ref
+	Scope        policy.Scope
+	OperationID  uuid.UUID
+	Batch        input.Batch
+	ObserveAfter bool
 }
 
 type RunActionsResult struct {
-	Operation operation.Receipt  `json:"operation"`
-	Batch     input.BatchReceipt `json:"batch"`
-	Existing  bool               `json:"existing,omitzero"`
+	Operation   operation.Receipt  `json:"operation"`
+	Batch       input.BatchReceipt `json:"batch"`
+	Existing    bool               `json:"existing,omitzero"`
+	Observation *ScreenObservation `json:"observation,omitempty"`
+}
+
+type ObserveRequest struct {
+	ControlRequest
+	Freshness time.Duration
+}
+
+// ScreenObservation contains server-owned binding metadata and PNG bytes.
+type ScreenObservation struct {
+	Observation video.Observation `json:"observation"`
+	MIMEType    string            `json:"mime_type"`
+	Data        []byte            `json:"-"`
 }
 
 type ReleaseInputRequest struct {

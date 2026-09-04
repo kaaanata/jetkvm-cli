@@ -190,9 +190,24 @@ func awaitDeviceMetadata(ctx context.Context, signal *signalSocket) (string, err
 }
 
 func (s *Session) configurePeer() error {
-	if _, err := s.peer.AddTransceiverFromKind(webrtc.RTPCodecTypeVideo, webrtc.RTPTransceiverInit{
+	transceiver, err := s.peer.AddTransceiverFromKind(webrtc.RTPCodecTypeVideo, webrtc.RTPTransceiverInit{
 		Direction: webrtc.RTPTransceiverDirectionRecvonly,
-	}); err != nil {
+	})
+	if err != nil {
+		return ErrWebRTCFailed
+	}
+	// The embedded snapshot decoder accepts H.264 only. Never negotiate a
+	// preferred firmware H.265 stream that the observation pipeline cannot read.
+	var codecs []webrtc.RTPCodecParameters
+	for _, codec := range transceiver.Receiver().GetParameters().Codecs {
+		if codec.MimeType == webrtc.MimeTypeH264 {
+			codecs = append(codecs, codec)
+		}
+	}
+	if len(codecs) == 0 {
+		return ErrWebRTCFailed
+	}
+	if err := transceiver.SetCodecPreferences(codecs); err != nil {
 		return ErrWebRTCFailed
 	}
 

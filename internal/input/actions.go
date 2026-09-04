@@ -124,7 +124,7 @@ func DefaultLimits() Limits {
 		MaxBatchDuration:  MaxBatchDuration,
 		MaxWaitDuration:   MaxWaitDuration,
 		MaxTotalWait:      MaxTotalWait,
-		MaxObservationAge: 2 * time.Second,
+		MaxObservationAge: 30 * time.Second,
 	}
 }
 

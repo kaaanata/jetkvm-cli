@@ -246,7 +246,9 @@ func (a *actor) execute(ctx context.Context, ref Ref, capability string, execute
 	case err := <-result:
 		return err
 	case <-ctx.Done():
-		return context.Cause(ctx)
+		// Submission transfers execution ownership to the actor. Join its
+		// terminal callback before consumers inspect receipts or release locks.
+		return errors.Join(context.Cause(ctx), <-result)
 	}
 }
 

@@ -1,6 +1,6 @@
 ---
 name: jetkvm
-description: Inspect or control physical computers through configured JetKVM devices. Use for device status, keyboard or pointer input, bounded computer-use actions, control sessions, and supported ATX power operations. Do not use for ordinary local desktop control or generic SSH administration.
+description: Inspect or control physical computers through configured JetKVM devices. Use for device status, PNG screenshots, keyboard or pointer input, bounded computer-use actions, control sessions, and supported ATX power operations. Do not use for ordinary local desktop control or generic SSH administration.
 ---
 
 # JetKVM
@@ -16,7 +16,7 @@ Resolve one explicit target before taking action:
 3. Read status and capabilities before opening control when readiness or supported hardware is unknown.
 4. Keep device ID, control handle, generation, observation, and operation receipt from the same device together. Never reuse them across devices.
 
-Read [safety.md](references/safety.md) before any input, takeover, or power operation. Read [workflows.md](references/workflows.md) for control-handle and multi-step workflows.
+Read [safety.md](references/safety.md) before any input, takeover, or power operation. Read [workflows.md](references/workflows.md) for CLI screenshot/input examples and persistent MCP observation/action loops.
 
 ## Operating principles
 
@@ -28,7 +28,9 @@ Read [safety.md](references/safety.md) before any input, takeover, or power oper
 - Report transport acceptance, device observation, and physical outcome separately. Do not claim an attached host changed state without observation.
 - Close owned control handles when the requested workflow is finished. The server performs terminal input neutralization during cleanup.
 
-Screen observation is currently unavailable when the server does not advertise a decoder-backed observation tool. Do not invent an observation, use stale coordinates, or substitute an external capture path.
+For screenshot-only MCP work, open a `video` handle and call `jetkvm_observe` or `jetkvm_capture_screen`. For visual input, open `input` + `video`, inspect the returned PNG ImageContent, and use its `observation_id` with that same device, handle, and generation. The server supplies binding dimensions and timestamps; never construct or restamp them. Coordinate bindings default to 30 seconds from source frame receive time, independently of decoding time or capture freshness. Expired bindings require a new observation.
+
+CLI `screenshot` saves an explicit PNG path and closes its video-only control. Normal CLI coordinate commands obtain their own observation within their command-scoped input/video control. A screenshot from a previous command cannot become that command's binding. Prefer the persistent MCP loop when the next action depends on inspecting the exact bound image. If observation tooling is unavailable, do not invent an observation or substitute an external capture path.
 
 ## Results
 

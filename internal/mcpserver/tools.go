@@ -88,11 +88,7 @@ func (s *Server) registerTools(server *mcp.Server) {
 		), s.getCapabilities)
 	}
 
-	// Video observation and screenshot tools remain absent until a production
-	// embedded decoder passes the compatibility gate. DecoderAvailable is kept
-	// as an explicit capability input, not a reason to publish non-functional
-	// tools.
-	_ = s.decoder
+	s.registerObservationTools(server)
 	s.registerControlTools(server)
 }
 

@@ -4,5 +4,11 @@ Copyright 2026 Fred Liang
 This product is independently developed and is not an official JetKVM product.
 JetKVM is a trademark of its respective owner.
 
+The embedded WASI still-frame decoder includes Eyevinn hi264 v0.10.0 and
+mp4ff v0.50.0 under the MIT License, executed with wazero under Apache-2.0.
+Decoder license texts are distributed in DECODER_LICENSES.txt and embedded
+in the executable. Reproducible decoder source and build instructions are
+provided in internal/video in the corresponding source release.
+
 Third-party attribution notices required by distributed dependencies will be
 included in release artifacts.

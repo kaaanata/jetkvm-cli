@@ -564,6 +564,14 @@ type fakeRuntimeSession struct {
 	active      int
 	maxActive   int
 	rpcFailure  error
+	observe     func(context.Context) (ScreenObservation, error)
+}
+
+func (s *fakeRuntimeSession) Observe(ctx context.Context, _ time.Duration) (ScreenObservation, error) {
+	if s.observe == nil {
+		return ScreenObservation{}, domain.ErrCapabilityUnavailable
+	}
+	return s.observe(ctx)
 }
 
 func newFakeRuntimeSession(t *testing.T, generation uint64, extension string) *fakeRuntimeSession {

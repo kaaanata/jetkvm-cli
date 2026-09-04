@@ -19,6 +19,7 @@ Do not work around a rejected, expired, unavailable, or unsupported confirmation
 
 - Prefer one key or a short bounded action batch over long speculative sequences.
 - Pointer coordinates require a fresh observation bound to the same device and control generation.
+- Bindings default to 30 seconds from source frame receive time. Decoding and model thinking do not reset that clock; never restamp client metadata. Expiry requires a new server observation.
 - Never click from a remembered coordinate, an unrelated screenshot, or an observation whose generation changed.
 - Keep power operations outside input batches.
 - Close the owned handle at the end so keyboard and pointer state can be neutralized.
@@ -33,6 +34,8 @@ Every state-changing operation has an operation ID and receipt. Interpret delive
 - partial batch completion means earlier actions remain effective.
 
 Never retry an ambiguous or non-retry-safe physical action. Ask for a fresh observation or user direction instead.
+
+Input is not automatically retried. A failed screenshot, timeout, or PNG file write after input does not prove that input was unsent. Preserve partial receipts and any returned image; observing again does not authorize replaying the preceding action.
 
 ## Power
 
