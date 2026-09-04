@@ -27,6 +27,7 @@
 - The JetKVM plugin bundles one MCP definition and one canonical skill, and always invokes the installed binary as `jetkvm mcp serve --transport=stdio`. Do not bundle a second executable inside a plugin.
 - Setup, update, and uninstall must be idempotent, produce stable machine-readable receipts, detect foreign conflicts, and remove only resources whose ownership is established by a prior receipt.
 - Treat JetKVM WebRTC JSON-RPC and HID protocols as internal, version-sensitive protocols rather than stable public APIs.
+- Initial video PLI uses the single nonzero remote video SSRC already negotiated by SDP, with the owning session generation fence. Do not wait for OnTrack to request a first keyframe: Pion normally needs the first RTP packet before firing that callback. Reject absent or ambiguous negotiated video identities instead of guessing an SSRC.
 - Local device access is the default. JetKVM Cloud support is outside the first release.
 - A real LAN JetKVM and a JetKVM Cloud account are available for testing. Keep its IP address, hardware device ID, credentials, and cloud account details out of committed files; resolve them from local ignored configuration.
 - MCP protocol statelessness must not be confused with the stateful JetKVM WebRTC, HID, video, operation-ledger, and device-actor lifecycles.

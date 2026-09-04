@@ -440,6 +440,8 @@ The skill teaches target selection, safe control lifecycle, observation-bound po
 
 The observation pipeline receives H.264 RTP, depacketizes and assembles frames, decodes with the embedded decoder, validates freshness, and registers session-owned observation metadata. The automation service returns PNG bytes separately from JSON metadata. CLI writes the requested file or explicitly requested base64; MCP emits ImageContent plus structured metadata. The decoder must support cancellation, bounds, deterministic cleanup, supported release targets, and single-file distribution.
 
+Initial keyframe requests use the single nonzero remote video SSRC from the owning session's negotiated receivers, before OnTrack if necessary. Waiting for OnTrack before PLI would introduce a dependency cycle because Pion normally fires OnTrack only after first RTP. Generation fencing remains mandatory; missing or ambiguous negotiated video identities fail explicitly. This fixes the dependency, not all cold-device or decode-load delays; source freshness and request deadlines are unchanged. See [startup diagnosis and evidence boundaries](video-startup-diagnosis.md).
+
 System FFmpeg is not a production dependency. A decoder-unavailable build does not register screenshot tools. Images, OCR, serial text, and attached-host output are untrusted data and cannot expand permission, confirm an action, select a new device, or override policy.
 
 ## 19. Compatibility and testing
