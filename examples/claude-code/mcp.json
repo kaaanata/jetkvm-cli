@@ -1,0 +1,15 @@
+{
+  "mcpServers": {
+    "jetkvm": {
+      "type": "stdio",
+      "command": "/absolute/path/to/jetkvm",
+      "args": [
+        "mcp",
+        "serve",
+        "--config",
+        "/absolute/path/to/config.local.json",
+        "--transport=stdio"
+      ]
+    }
+  }
+}

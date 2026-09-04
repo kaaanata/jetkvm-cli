@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "jetkvm": {
+      "type": "http",
+      "url": "http://127.0.0.1:7456/mcp",
+      "headers": {
+        "Authorization": "Bearer ${JETKVM_MCP_BEARER_TOKEN}"
+      }
+    }
+  }
+}

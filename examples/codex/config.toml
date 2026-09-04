@@ -1,0 +1,11 @@
+# Merge this block into the Codex config file. Replace both absolute paths.
+# The server process owns stderr logs; stdout is reserved for MCP JSON-RPC.
+[mcp_servers.jetkvm]
+command = "/absolute/path/to/jetkvm"
+args = [
+  "mcp",
+  "serve",
+  "--config",
+  "/absolute/path/to/config.local.json",
+  "--transport=stdio",
+]
