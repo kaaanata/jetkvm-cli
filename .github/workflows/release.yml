@@ -1,0 +1,84 @@
+name: Release
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
+  id-token: write
+  attestations: write
+
+jobs:
+  release:
+    name: Release Please and GoReleaser
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Create or update release
+        id: release
+        uses: googleapis/release-please-action@v5
+
+      # GITHUB_TOKEN-created tags do not start another workflow. Build and
+      # publish in this run, explicitly from the tag produced above.
+      - name: Check out release tag
+        if: ${{ steps.release.outputs.release_created == 'true' }}
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ steps.release.outputs.tag_name }}
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Set up Go
+        if: ${{ steps.release.outputs.release_created == 'true' }}
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Test release tag
+        if: ${{ steps.release.outputs.release_created == 'true' }}
+        run: go test ./...
+
+      - name: Install Syft
+        if: ${{ steps.release.outputs.release_created == 'true' }}
+        uses: anchore/sbom-action/download-syft@v0
+
+      - name: Install Cosign
+        if: ${{ steps.release.outputs.release_created == 'true' }}
+        uses: sigstore/cosign-installer@v3
+
+      - name: Validate release installers
+        if: ${{ steps.release.outputs.release_created == 'true' }}
+        run: |
+          shellcheck scripts/install.sh scripts/render-installers.sh scripts/test-installers.sh
+          pwsh -NoLogo -NoProfile -File scripts/test-install.ps1
+          ./scripts/test-installers.sh
+
+      - name: Build and publish release artifacts
+        if: ${{ steps.release.outputs.release_created == 'true' }}
+        uses: goreleaser/goreleaser-action@v7
+        with:
+          distribution: goreleaser
+          version: "~> v2"
+          args: release --clean
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Attest release artifacts
+        if: ${{ steps.release.outputs.release_created == 'true' }}
+        uses: actions/attest@v4
+        with:
+          subject-path: |
+            dist/*.tar.gz
+            dist/*.zip
+            dist/checksums.txt
+            dist/checksums.txt.sigstore.json
+            dist/*.sbom.json
+            .cache/release-installers/install.sh
+            .cache/release-installers/install.ps1

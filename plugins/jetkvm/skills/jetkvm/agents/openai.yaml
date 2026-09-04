@@ -1,0 +1,7 @@
+interface:
+  display_name: "JetKVM Control"
+  short_description: "Safely inspect and control computers through JetKVM"
+  default_prompt: "Use $jetkvm to inspect my configured JetKVM devices and safely complete the requested hardware action."
+
+policy:
+  allow_implicit_invocation: true
