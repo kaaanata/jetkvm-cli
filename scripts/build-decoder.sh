@@ -4,6 +4,7 @@ set -eu
 root=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
 cd "$root/internal/video/wasmdecoder"
 export GOTOOLCHAIN=go1.27.0 GOWORK=off CGO_ENABLED=0
+go mod download
 go mod verify
 upstream=$(go list -m -f '{{.Dir}}' github.com/Eyevinn/hi264)
 build_dir=$(mktemp -d)
