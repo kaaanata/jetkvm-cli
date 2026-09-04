@@ -1,5 +1,23 @@
 # Changelog
 
+## [1.0.3](https://github.com/kaaanata/jetkvm-cli/compare/v1.0.2...v1.0.3) (2026-09-04)
+
+
+### Features
+
+* unify terminal UI with Charm components ([b31de07](https://github.com/kaaanata/jetkvm-cli/commit/b31de07cabc84d452aa51212f6f1f39d0106361d))
+
+
+### Bug Fixes
+
+* join terminal input before form shutdown ([f4250c7](https://github.com/kaaanata/jetkvm-cli/commit/f4250c724c1f98f4084468d822e9b2f30c6c9030))
+* restore legacy release archive contract ([747897c](https://github.com/kaaanata/jetkvm-cli/commit/747897ca9655689e2648fbeb222db67016c4d8f8))
+
+
+### Miscellaneous Chores
+
+* prepare patch release ([7d18098](https://github.com/kaaanata/jetkvm-cli/commit/7d18098465adea1ede30606805fe123e52ac65fe))
+
 ## [1.0.2](https://github.com/kaaanata/jetkvm-cli/compare/v1.0.1...v1.0.2) (2026-09-04)
 
 
