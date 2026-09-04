@@ -1,0 +1,20 @@
+{
+  "name": "jetkvm",
+  "interface": {
+    "displayName": "JetKVM"
+  },
+  "plugins": [
+    {
+      "name": "jetkvm",
+      "source": {
+        "source": "local",
+        "path": "./plugins/jetkvm"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Productivity"
+    }
+  ]
+}
