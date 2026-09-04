@@ -13,6 +13,7 @@
 - Target MCP protocol revision `2026-07-28` using the official Go SDK.
 - The first public release supports stdio and loopback-only stateless Streamable HTTP. Remote HTTP remains out of scope.
 - Release builds should be single-file executables. External FFmpeg may be a development fallback, not a production requirement.
+- Release CI installs pinned Cosign 3 through Go's verified module path; the legacy cosign-installer action does not support its release asset layout. The produced bundle must pass the installed updater's own verifier before upload.
 - Use mature CLI components. Cobra is the command-tree authority; Charmbracelet Log is preferred for stderr human logs. Fang remains experimental and must not become the parser/lifecycle authority. Huh may be reconsidered when its dependency graph is compatible with the project; the current confirmation prompt remains a narrow adapter and never an authorization authority.
 - Every CLI command supports stable JSON output. Non-TTY execution defaults to JSON; stdout contains only the result document and stderr contains logs/progress. CLI exit codes and MCP error kinds share one taxonomy.
 - Releases use release-please for version/release PR and SemVer tag creation, then GoReleaser in the same release workflow to publish cross-platform CLI artifacts, checksums, SBOM, and provenance where supported.
