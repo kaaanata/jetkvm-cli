@@ -112,7 +112,7 @@ func pluginAddStep(target Target) Step {
 }
 
 func pluginUpgradeStep(target Target) Step {
-	verb := "upgrade"
+	verb := "add"
 	if target.Host == HostClaudeCode {
 		verb = "update"
 	}

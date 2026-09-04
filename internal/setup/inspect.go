@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json/jsontext"
 	"encoding/json/v2"
 	"errors"
 	"fmt"
@@ -117,6 +118,10 @@ func findJSONComponent(data []byte, names []string, sourceKeys ...string) (Compo
 	if version, ok := object["version"].(string); ok {
 		component.Version = version
 	}
+	if transport, ok := object["transport"].(map[string]any); ok {
+		object = transport
+		component.Command, _ = object["command"].(string)
+	}
 	if args, ok := object["args"].([]any); ok {
 		for _, arg := range args {
 			stringArg, stringOK := arg.(string)
@@ -141,6 +146,10 @@ func parseMarketplace(data []byte) (Component, error) {
 }
 
 func parsePlugin(data []byte) (Component, error) {
+	var envelope map[string]jsontext.Value
+	if err := json.Unmarshal(data, &envelope); err == nil && envelope["installed"] != nil {
+		data = envelope["installed"]
+	}
 	object, err := decodeNamedObject(data, []string{MarketplaceName, PluginReference})
 	if err != nil || object == nil {
 		return Component{}, err
@@ -150,6 +159,11 @@ func parsePlugin(data []byte) (Component, error) {
 		object["marketplace"], nestedString(object, "source", "source"), object["source"],
 	)}
 	component.Version, _ = object["version"].(string)
+	if component.Source == "" {
+		if id, ok := object["id"].(string); ok && id == PluginReference {
+			component.Source = MarketplaceName
+		}
+	}
 	return component, nil
 }
 
@@ -239,7 +253,7 @@ func classify(snapshot Snapshot, version string) State {
 		if directEquivalent && !snapshot.Marketplace.Present && !snapshot.Plugin.Present {
 			return StateLegacyDirect
 		}
-		if snapshot.Marketplace.Present && snapshot.Plugin.Present && !snapshot.DirectMCP.Present {
+		if snapshot.Marketplace.Present && snapshot.Plugin.Present && (!snapshot.DirectMCP.Present || directEquivalent) {
 			if snapshot.Plugin.Version == "" {
 				return StatePartial
 			}

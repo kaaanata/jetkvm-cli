@@ -26,6 +26,7 @@ release_dir="$test_dir/release"
 payload_dir="$test_dir/payload"
 mkdir -p "$release_dir" "$payload_dir"
 printf '#!/bin/sh\necho test\n' >"$payload_dir/jetkvm"
+dd if=/dev/zero bs=1048576 count=2 >>"$payload_dir/jetkvm" 2>/dev/null
 chmod 0755 "$payload_dir/jetkvm"
 cp "$repository_dir/LICENSE" "$repository_dir/NOTICE" "$repository_dir/README.md" "$payload_dir/"
 archive="jetkvm_9.8.7_${target}.tar.gz"
@@ -46,6 +47,7 @@ install_dir="$test_dir/install"
 PATH="$shim_dir:$PATH" JETKVM_ALLOW_INSECURE_TEST_URL=1 JETKVM_RELEASE_BASE_URL="file://$release_dir" \
   "$test_dir/rendered/install.sh" --install-dir "$install_dir"
 test -x "$install_dir/jetkvm"
+cmp "$payload_dir/jetkvm" "$install_dir/jetkvm"
 receipt="$install_dir/.jetkvm-install.json"
 canonical_install_dir=$(CDPATH='' cd -- "$install_dir" && pwd -P)
 grep -q '"owner":"standalone"' "$receipt"

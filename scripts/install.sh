@@ -145,7 +145,10 @@ tar -tvzf "$work_dir/$archive" | awk 'substr($1, 1, 1) != "-" { exit 1 }' || {
 mkdir -p "$work_dir/extract" "$INSTALL_DIR"
 INSTALL_DIR=$(CDPATH='' cd -- "$INSTALL_DIR" && pwd -P)
 staged_binary="$work_dir/extract/jetkvm"
-tar -xOzf "$work_dir/$archive" jetkvm | dd of="$staged_binary" bs=1048576 count=65 2>/dev/null
+if ! (ulimit -f 131072; tar -xzf "$work_dir/$archive" -C "$work_dir/extract" jetkvm); then
+  echo "failed to extract the release executable" >&2
+  exit 1
+fi
 binary_size=$(wc -c <"$staged_binary" | tr -d ' ')
 if [ "$binary_size" -le 0 ] || [ "$binary_size" -gt 67108864 ]; then
   echo "release executable size is outside the allowed range" >&2

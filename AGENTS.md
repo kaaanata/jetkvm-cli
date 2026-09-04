@@ -1,5 +1,8 @@
 # Project Notes
 
+- Codex MCP readback includes plugin-provided servers and nests commands under `transport`; setup must distinguish installed plugins from available catalog entries. Reinstall updated Codex plugins with the host-native `plugin add` command.
+- Installer tests must compare a multi-megabyte installed executable byte-for-byte with its archive source; pipe read counts do not prove complete extraction.
+
 - All public repository documentation, examples, plugin metadata, and skill content must be written in English.
 - `docs/design.md` is the source of truth for product scope, public MCP contracts, protocol assumptions, and safety invariants.
 - `docs/hil-inventory.md` records the sanitized current hardware test fixture and verification boundary. Never add its IP, MAC, CPU serial/device ID, account identity, credentials, or SSH key details.
