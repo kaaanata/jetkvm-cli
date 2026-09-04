@@ -1,0 +1,12 @@
+/bin/
+/dist/
+/.cache/
+/.idea/
+/.vscode/
+*.db
+*.db-shm
+*.db-wal
+*.log
+.DS_Store
+config.local.json
+*.local.json

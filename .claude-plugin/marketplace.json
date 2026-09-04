@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-marketplace.json",
+  "name": "jetkvm",
+  "version": "1.0.0",
+  "description": "JetKVM CLI integrations for safely operating physical computers.",
+  "owner": {
+    "name": "kaaanata",
+    "email": "kaaanata@users.noreply.github.com"
+  },
+  "plugins": [
+    {
+      "name": "jetkvm",
+      "description": "Safely inspect and control physical computers through one or more JetKVM devices.",
+      "version": "1.0.0",
+      "author": {
+        "name": "kaaanata",
+        "email": "kaaanata@users.noreply.github.com"
+      },
+      "source": "./plugins/jetkvm",
+      "category": "productivity"
+    }
+  ]
+}

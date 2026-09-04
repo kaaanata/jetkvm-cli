@@ -1,0 +1,30 @@
+{
+  "name": "jetkvm",
+  "version": "1.0.0",
+  "description": "Safely inspect and control physical computers through one or more JetKVM devices.",
+  "author": {
+    "name": "kaaanata",
+    "url": "https://github.com/kaaanata"
+  },
+  "homepage": "https://github.com/kaaanata/jetkvm-cli",
+  "repository": "https://github.com/kaaanata/jetkvm-cli",
+  "license": "Apache-2.0",
+  "keywords": ["jetkvm", "mcp", "computer-use", "hardware"],
+  "skills": "./skills/",
+  "mcpServers": "./.mcp.json",
+  "interface": {
+    "displayName": "JetKVM",
+    "shortDescription": "Safely control physical computers through JetKVM",
+    "longDescription": "Inspect and control one or more local JetKVM devices with shared policy, confirmation, and operation receipts.",
+    "developerName": "kaaanata",
+    "category": "Productivity",
+    "capabilities": ["Read", "Interactive", "Write"],
+    "websiteURL": "https://github.com/kaaanata/jetkvm-cli",
+    "defaultPrompt": [
+      "Check my JetKVM devices and report their status.",
+      "Use the lab JetKVM to press Escape.",
+      "Diagnose why my JetKVM is not ready for control."
+    ],
+    "brandColor": "#F15A24"
+  }
+}
