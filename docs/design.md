@@ -1,0 +1,473 @@
+# JetKVM CLI and MCP Product Design
+
+Status: implemented control, installer, updater, and agent-setup baseline
+
+Date: 2026-09-05
+
+Language: Go 1.27
+
+Target MCP revision: `2026-07-28`
+
+## 1. Product definition
+
+JetKVM CLI is a local-first hardware execution product. One self-contained `jetkvm` binary provides a user-facing CLI and an embedded MCP server for Codex and Claude Code. Both interfaces call the same device identity, policy, confirmation, actor, operation-ledger, and receipt authorities.
+
+The product is not a general proxy for JetKVM's internal JSON-RPC surface. It exposes a closed set of safe, typed operations between an agent or user and a physical computer:
+
+```text
+User or MCP host
+  -> CLI or MCP adapter
+  -> device identity and compiled policy
+  -> confirmation and operation ledger
+  -> per-device actor and control lease
+  -> JetKVM HTTP / WebSocket / WebRTC / HID
+  -> attached physical computer
+```
+
+MCP requests may be stateless at the protocol boundary. WebRTC sessions, HID state, control ownership, video state, device actors, and operation receipts remain explicitly stateful.
+
+All repository documentation, examples, plugin metadata, and skill content are English.
+
+## 2. Decision summary
+
+| Area | Decision |
+|---|---|
+| Product surface | Complete control CLI plus embedded MCP server in one binary |
+| License | Apache-2.0 |
+| MCP SDK | Official `github.com/modelcontextprotocol/go-sdk` |
+| MCP revision | `2026-07-28` |
+| MCP transports | stdio and loopback-only stateless Streamable HTTP |
+| Primary MCP hosts | Codex and Claude Code |
+| Device scope | Local direct access, including user-managed VPN addresses |
+| JetKVM Cloud | Outside the first release |
+| Multiple devices | First-class, isolated by stable device ID |
+| Write ordering | Serialized within one device; independent devices may run concurrently |
+| Control lifetime | Five-minute idle timeout and 30-minute absolute lifetime by default |
+| Input | Keyboard, pointer, waits, and bounded deterministic action batches |
+| Power | Explicitly enabled ATX press, reset, and hold |
+| Confirmation | One-time proof bound to the complete effect and target |
+| Retry | Never retry automatically after the physical send boundary becomes ambiguous |
+| Receipts | Operation receipts retained 30 days; security audit retained 90 days |
+| Screenshot | Withheld until a production embedded decoder satisfies single-binary releases |
+| CLI framework | Cobra command tree; Charmbracelet Log on stderr |
+| Machine output | Stable JSON; non-TTY defaults to JSON; stdout is result-only |
+| Release | Release Please creates SemVer tags; GoReleaser publishes artifacts and provenance |
+| Install | Release-pinned standalone installers plus package-manager channels |
+| Update | The original installation owner remains the update authority |
+| Agent setup | Host-native plugin lifecycle by default; direct mode is explicit |
+
+## 3. Upstream protocol boundary
+
+The compatibility baseline was researched against JetKVM `release/0.5.8` and upstream development commit `3f7c7095a0628a305f652fb3ee5e031f91106eb4`.
+
+Relevant upstream properties:
+
+1. HTTP exposes authentication, device information, diagnostics, file transfer, WOL, and WebRTC signaling.
+2. Most controls use an internal JSON-RPC protocol over a WebRTC `rpc` DataChannel.
+3. Keyboard, pointer, serial, and terminal streams use dedicated DataChannels.
+4. Video arrives as H.264/H.265 media tracks.
+5. A device has one global current session; a new control connection can displace a browser session.
+6. RPC registries differ between released firmware and development builds.
+7. Local authentication does not provide service-account scopes or multi-user audit authority.
+8. Open HTTP RPC and screenshot proposals are not stable released compatibility contracts.
+
+Primary references:
+
+- [JetKVM source](https://github.com/jetkvm/kvm)
+- [Local access documentation](https://jetkvm.com/docs/networking/local-access)
+- [HTTP RPC issue](https://github.com/jetkvm/kvm/issues/1320)
+- [Screenshot API issue](https://github.com/jetkvm/kvm/issues/1555)
+- [Keyboard and mouse API issue](https://github.com/jetkvm/kvm/issues/1426)
+
+The public product must describe these integrations as compatibility with tested internal protocols, never as an official stable JetKVM API. Unknown firmware may expose conservative read-only status, but control stays unavailable until compatibility is established.
+
+## 4. Product influences
+
+### GitHub MCP Server
+
+Adopt a startup capability ceiling, one compiled policy for both discovery and execution, closed schemas, explicit effect classes, and confirmation state bound to the complete request. Do not assume a downstream API supplies authorization, idempotency, or audit: the hardware execution layer owns those properties.
+
+### Playwright and Chrome DevTools MCP
+
+Adopt explicit target identifiers, long-lived backend state behind short MCP calls, generation-bound observations, action batches, post-action observation, native multimodal content, and distinct owned versus attached teardown. Unlike browser targets, JetKVM has no accessibility tree or stable DOM references, so pointer coordinates must be bound to a fresh observation.
+
+### Home Assistant and infrastructure MCP servers
+
+Keep `discovered`, `registered`, `exposed`, and `authorized` as separate states. Use stable tools with a `device_id` argument instead of generating tools per device. Compute authorization as the intersection of deployment ceiling, toolset policy, device exposure, device permission, caller scope, firmware support, and runtime readiness; deny always wins.
+
+### OpenAI Computer Use
+
+Use a bounded ordered `actions[]` vocabulary. The server executes deterministic actions supplied by the caller; it does not run an autonomous visual agent or arbitrary code. Batch completion is not a transaction: partial execution must return a partial receipt, and a fresh observation is required before another visual decision.
+
+## 5. Goals and exclusions
+
+### First-release goals
+
+- Configure and explicitly expose one or more local JetKVM devices.
+- Authenticate with local password or explicitly accepted no-password mode.
+- Pin and verify the stable hardware identity.
+- Read source-attributed device status and capability state without opening WebRTC.
+- Open a takeover-policy-governed control handle.
+- Send validated keyboard and pointer input with terminal neutralization.
+- Execute one to sixteen deterministic input actions within a bounded duration.
+- Read and operate a compatible ATX extension when explicitly enabled.
+- Provide equivalent CLI and MCP operations with the same policy and receipts.
+- Support MCP stdio and loopback HTTP with current Codex and Claude Code.
+- Install and manage the CLI, MCP registration, and canonical agent skill as product lifecycles.
+
+### Exclusions
+
+- JetKVM Cloud/OIDC login and Cloud inventory;
+- remote public MCP HTTP;
+- arbitrary JSON-RPC, shell, SSH, terminal, or code-execution tools;
+- serial console and RFC2217;
+- device network, TLS, firmware, developer-mode, or factory-reset administration;
+- arbitrary-URL virtual media;
+- a real-time video player;
+- permission escalation based on screen, OCR, serial, or attached-host content;
+- claiming that RPC acceptance proves the physical host completed an action;
+- copying GPL implementation code from JetKVM;
+- an autonomous agent loop inside the MCP server.
+
+## 6. Core domain objects
+
+```text
+Device
+├── device_id             stable authorization and audit identity
+├── alias                 display and selection convenience
+├── origin                exact HTTP(S) origin
+├── exposed               explicit MCP visibility
+├── permissions           static capability ceiling
+├── compatibility         firmware/protocol evidence
+├── takeover_policy       whether session displacement is permitted
+└── session_policy        idle and absolute lifetimes
+
+ControlHandle
+├── handle_id
+├── device_id
+├── generation
+├── ownership             owned or attached
+├── capabilities
+├── created_at
+├── last_used_at
+├── idle_expires_at
+└── absolute_expires_at
+
+Observation
+├── observation_id
+├── device_id
+├── control_generation
+├── captured_at
+├── frame dimensions
+├── source metadata
+└── trust = untrusted_observation
+
+OperationReceipt
+├── operation_id
+├── request_digest
+├── device_id
+├── control_generation
+├── effect_class
+├── policy_revision
+├── stage
+├── delivery
+├── verification
+├── terminal_claim
+└── retry_safe
+```
+
+A stable device ID is the authorization subject. An alias can resolve to a device for user ergonomics, but policy evaluation, control handles, locks, confirmation, and receipts always bind the stable ID. A control generation fences calls from displaced or expired sessions.
+
+## 7. Architecture and concurrency
+
+The composition root creates one runtime shared by CLI or MCP adapters:
+
+```text
+config + credential providers + SQLite
+                  |
+          compiled policy
+                  |
+     automation operation service
+                  |
+       DeviceActor registry
+          /       |       \
+     device A  device B  device C
+```
+
+Each stable device ID has one in-process actor, one client, one session policy, one generation sequence, and one cross-process lock. All state-changing work for the same device passes through that actor. Different actors make progress independently.
+
+The actor owns session creation, replacement, teardown, input lease, neutralization, and handle expiry. Transport callbacks enqueue typed events; they do not mutate actor state directly. Runtime shutdown drains automation, neutralizes input, closes owned sessions, then closes durable storage.
+
+CLI control operations are command-scoped: open, execute, neutralize, and close happen within one process. A CLI must not print a handle intended for a later process because runtime shutdown invalidates it. MCP uses explicit handles across calls because the server process remains alive.
+
+## 8. Policy and capabilities
+
+Effective permission is an intersection:
+
+```text
+deployment ceiling
+∩ configured toolsets
+∩ individual tool allow/deny
+∩ caller scope
+∩ device exposure
+∩ device permissions
+∩ firmware compatibility
+∩ runtime capability
+```
+
+Static policy controls tool discovery. The same compiled policy is evaluated again at call time, so a client cannot bypass discovery by invoking a known tool name directly. MCP annotations are descriptive hints and never authorization.
+
+Capability reporting separates:
+
+- `compiled`: support exists in this binary;
+- `configured`: policy enables it;
+- `firmware`: the tested protocol supports it;
+- `ready`: the required runtime component is currently available.
+
+Transient readiness does not constantly add and remove tools. Calls return a typed capability error with source evidence when a configured feature is temporarily unavailable.
+
+## 9. Public MCP surface
+
+The MCP server uses closed input and output schemas and structured content. Current public tools are:
+
+| Tool | Effect | Purpose |
+|---|---|---|
+| `jetkvm_list_devices` | read | List explicitly exposed devices without contacting them |
+| `jetkvm_get_status` | read | Read HTTP-only, source-attributed basic status |
+| `jetkvm_get_capabilities` | read | Return compiled/configured/firmware/runtime capability state |
+| `jetkvm_open_control` | control | Open a fenced WebRTC control handle under takeover policy |
+| `jetkvm_get_control` | read | Read a handle without creating a session |
+| `jetkvm_close_control` | control | Neutralize input and close an owned handle |
+| `jetkvm_key_press` | input | Press and release one validated key |
+| `jetkvm_key_combo` | input | Press and release one bounded chord |
+| `jetkvm_type_text` | input | Type validated US-layout text |
+| `jetkvm_pointer_click` | input | Click a point bound to a fresh observation |
+| `jetkvm_run_actions` | input | Execute a bounded deterministic action batch |
+| `jetkvm_get_power_state` | read | Read supported ATX LED state |
+| `jetkvm_power_action` | power | Execute a non-retryable press, reset, or hold |
+
+Screenshot/observation tools are not registered until a production embedded H.264 decoder passes compatibility and release gates. The server must return capability unavailability rather than an empty image, stale placeholder, or external FFmpeg dependency.
+
+### Transport
+
+The stdio process reserves stdout exclusively for MCP frames; logs go to stderr. Loopback Streamable HTTP is stateless at the MCP request layer, requires a separate bearer credential, validates Origin and Host, and refuses non-loopback listeners. Device credentials are never HTTP bearer credentials.
+
+Remote HTTP requires a separate future threat model covering TLS termination, caller identity, revocation, rate limits, reverse-proxy trust, and distributed control ownership.
+
+## 10. Input and computer-use semantics
+
+The action vocabulary includes move, click, double-click, drag, scroll, keypress, type text, wait, and screenshot as a reserved capability. A batch contains at most 16 actions and runs for at most 15 seconds. It contains input and wait actions only; power, media, and administration are separate risk domains.
+
+Pointer actions require an observation binding containing observation ID, device ID, generation, dimensions, and capture time. A binding is invalid after generation replacement, expiry, or unacceptable staleness. Coordinates are validated against the exact frame dimensions.
+
+Keyboard and pointer share one exclusive input lease. Every terminal path attempts the same neutralization sequence:
+
+1. neutral keyboard report;
+2. neutral absolute-pointer report;
+3. neutral relative-pointer report;
+4. flush and bounded close.
+
+This runs after success, validation failure after lease acquisition, cancellation, timeout, disconnect, panic recovery, lease expiry, takeover, and shutdown. Failure to prove neutral state marks input state uncertain and blocks further writes until recovery.
+
+Text confirmation policy:
+
+- up to 256 Unicode scalar values: no length-only confirmation;
+- 257 through 4096 scalar values: require action-time confirmation;
+- more than 4096 scalar values: reject;
+- text followed by a commit key, function key, or sensitive modifier chord requires confirmation regardless of length.
+
+The implementation currently supports a fully prevalidated US keyboard layout. Unsupported characters are rejected before the first HID report, preventing partial text caused by late layout failure.
+
+## 11. Confirmation authority
+
+Confirmation is a short-lived, one-time HMAC-sealed proof issued by a trusted interaction boundary. It binds:
+
+- principal and transport;
+- stable device ID;
+- control handle and generation;
+- effect class and action;
+- complete argument digest;
+- policy revision;
+- operation ID when applicable;
+- expiry and nonce.
+
+The proof is atomically consumed at the device-send boundary. It cannot be replayed, moved to another device, reused for modified arguments, or replaced with a caller-supplied `confirmed: true` field.
+
+MCP uses the protocol's elicitation/MRTR flow. If the host cannot complete required elicitation, the operation fails closed. CLI prompts are only proof-issuance adapters; they are not authorization authorities. Non-interactive callers must provide an approved workflow or receive an action-required result.
+
+Opening a session may require confirmation because JetKVM can displace an existing browser session. Reset, hold, long text, commit actions, function keys, and sensitive chords require confirmation according to compiled policy.
+
+## 12. Operations, delivery, and receipts
+
+Each state-changing call uses a caller-visible UUID and a canonical request digest. The durable operation state machine is:
+
+```text
+not_sent
+  -> send_started
+  -> transport_accepted | ambiguous
+  -> observation_started | completed | failed
+  -> state_observed
+  -> completed | failed | cancelled
+```
+
+Before `send_started`, a deterministic validation or transport failure may be retry-safe. Once sending begins, interruption cannot prove that the device did not receive the action. The receipt records `delivery_ambiguous`, and neither CLI nor MCP automatically retries it.
+
+Reusing an operation ID with the same digest returns the existing receipt. Reusing it with different arguments is a conflict. Batch receipts identify the last completed action and the action that failed; completed actions are never rolled back or described as atomic.
+
+Transport acceptance, observed device state, and physical outcome are separate claims. HID acceptance does not prove that BIOS or the operating system reacted. ATX RPC acceptance does not prove that a motherboard completed a power transition.
+
+## 13. Credentials, network, and storage
+
+Configuration may reference an operating-system credential-store entry or a dedicated automation environment variable. Literal credentials are rejected. Credentials never appear in MCP arguments, output, logs, tracing attributes, receipts, or setup journals.
+
+HTTPS validates the normal certificate chain. An optional SPKI pin is an additional check. HTTPS never falls back to HTTP. Plain HTTP is a per-device opt-in intended for an isolated trusted LAN or a user-managed VPN.
+
+Local durable state uses private directory and file permissions. It stores identity pins, operation receipts, audit events, runtime secret material, installation receipts, and setup ownership journals. Runtime confirmation secrets are randomly generated and atomically persisted.
+
+Default retention:
+
+| Data | Retention |
+|---|---:|
+| Operation receipts | 30 days |
+| Security audit | 90 days |
+| Observation metadata | 24 hours |
+| Screenshot bytes | Not persisted |
+
+## 14. CLI contract
+
+Cobra is the command-tree and parsing authority. Charmbracelet Log is used for human diagnostics on stderr. Every result-producing command supports `--output=json|text`; terminals default to text and non-TTY output defaults to JSON. Scripts should select JSON explicitly when the contract matters.
+
+Stdout contains one result document and no progress, prompts, or logs. JSON fields use stable snake_case names. CLI exit kinds and MCP error kinds share one taxonomy, including invalid input, not found, policy denied, confirmation required, capability unavailable, stale generation, conflict, delivery ambiguous, action required, and internal failure.
+
+Commands call the automation service rather than JetKVM transports directly. Setup and update follow the same machine-readable receipt model.
+
+## 15. Installation and update
+
+GoReleaser is the single release-artifact authority. Release Please creates the version and tag; release automation publishes archives for macOS, Linux, and Windows on AMD64 and ARM64, checksums, SBOMs, and provenance.
+
+Release assets include pinned `install.sh` and `install.ps1` entry points. Installers use a closed platform map, private temporary storage, safe archive extraction, mandatory checksum verification, optional Cosign verification when the verifier is installed, and a durable installation receipt. They install to a user-owned directory by default and do not silently elevate. The built-in self-updater always verifies the Sigstore workflow identity and bundle.
+
+Installation owner is a closed enum:
+
+```text
+standalone | homebrew | winget | scoop | deb | rpm | source | unmanaged | unknown
+```
+
+`jetkvm update` may atomically replace only a proven `standalone` installation. Package-manager owners route through the original manager. Source, unmanaged, and unknown owners fail closed with an exact next action. Downgrades require an exact version and explicit acknowledgement; prereleases require an explicit channel.
+
+Standalone update is a durable prepare/verify/switch/self-check/commit transaction with a verified previous executable for rollback. Windows uses a helper after the running process exits. A checksum alone is insufficient publisher authentication; signature/provenance verification is independent.
+
+See [Install and Update](install-and-update.md) for the public lifecycle.
+
+## 16. Codex and Claude Code setup
+
+`jetkvm setup` is the onboarding authority for supported agent hosts. Device enrollment remains in the strict JetKVM configuration model:
+
+```text
+jetkvm setup
+jetkvm setup codex
+jetkvm setup claude-code
+jetkvm setup doctor [codex|claude-code]
+jetkvm setup uninstall codex
+jetkvm setup uninstall claude-code
+```
+
+The default host integration is a native plugin that packages one MCP definition and the canonical JetKVM skill. The plugin launches the installed executable as:
+
+```text
+jetkvm mcp serve --transport=stdio
+```
+
+It never bundles another binary. CLI updates and plugin updates remain separate, observable lifecycles while sharing one runtime executable.
+
+Direct mode is explicit MCP-only compatibility support. Setup never silently changes mode or creates a second standalone skill lifecycle. Before mutation it classifies state as absent, equivalent, owned outdated, foreign conflict, legacy direct, or partial. Equivalent is a no-op; owned outdated state uses the host-native update; foreign state is not overwritten by default. Codex setup is user-scoped because its host-native mutation commands do not currently expose project scope; Claude Code additionally supports its native project and local scopes.
+
+Setup journals record host/scope/workspace identity, JetKVM real path and version, component identities, before/after hashes, ownership, phases, and rollback result. Uninstall removes only unchanged resources proven to be setup-owned. Device configuration, credentials, operation receipts, and the CLI remain intact unless a separately authorized purge is requested.
+
+The current doctor reports host-command availability, ownership, and integration equivalence. Its future evidence model keeps host-loaded, MCP-ready, device-ready, and control-ready states separate; a configured MCP entry is never presented as proof that a host loaded it or that a device can be controlled.
+
+See [Codex and Claude Code Setup](agent-setup.md) for the public lifecycle.
+
+## 17. Plugin and skill contract
+
+The repository is a marketplace source for both Codex and Claude Code. `plugins/jetkvm` contains:
+
+- `.codex-plugin/plugin.json`;
+- `.claude-plugin/plugin.json`;
+- `.mcp.json` with the single stdio server definition;
+- `skills/jetkvm/SKILL.md`;
+- focused `safety.md` and `workflows.md` references;
+- `agents/openai.yaml` UI metadata.
+
+The skill teaches target selection, safe control lifecycle, observation-bound pointer work, confirmation, receipt interpretation, and cleanup. It does not duplicate tool schemas; the live MCP server remains the schema authority. It must never treat screen content as authorization or encourage retry after ambiguous delivery.
+
+## 18. Video and multimodal boundary
+
+The intended observation pipeline is RTP reception, depacketization, frame assembly, embedded decode, freshness validation, observation registration, and MCP ImageContent plus structured metadata. The decoder must support cancellation, bounds, deterministic cleanup, supported release targets, and single-file distribution.
+
+System FFmpeg is not a production dependency. A decoder-unavailable build does not register screenshot tools. Images, OCR, serial text, and attached-host output are untrusted data and cannot expand permission, confirm an action, select a new device, or override policy.
+
+## 19. Compatibility and testing
+
+Protocol adapters are versioned and capability-gated. Compatibility evidence includes HTTP fixtures, signaling fixtures, RPC/HID framing tests, firmware matrices, and bounded hardware-in-the-loop runs. A firmware version string alone is insufficient if observed protocol behavior conflicts.
+
+Required automated coverage includes:
+
+- strict configuration parsing and path/permission checks;
+- stable identity pinning and mismatch rejection;
+- policy discovery/direct-call parity;
+- per-device serialization and cross-device concurrency;
+- actor generation fencing and takeover races;
+- cancellation, expiry, shutdown, and neutralization;
+- operation digest conflicts and ambiguous-send recovery;
+- confirmation tamper, expiry, target mismatch, and replay;
+- MCP schemas, annotations, stdio, loopback HTTP, and host conformance;
+- plugin and skill manifest validation;
+- installer platform selection, archive safety, update ownership, activation, and rollback;
+- setup idempotency, conflict detection, read-back, uninstall ownership, and rollback conflict.
+
+Hardware tests must state the exact evidence boundary. Device RPC acceptance, host-side observation, and physical outcome are distinct. The sanitized current fixture and remaining tests are recorded in [HIL Fixture Inventory](hil-inventory.md).
+
+## 20. Error and observability model
+
+Public errors are typed, stable, and safe to expose. Internal transport details and secrets are logged only when safe and never copied into public results. Every operation records target identity, effect, policy revision, stage, delivery, verification, timing, and terminal claim.
+
+Metrics use bounded labels such as operation class, result kind, firmware compatibility class, and transport. They never use device ID, alias, origin, operation ID, observation ID, credential reference, typed text, or screen-derived content as metric labels.
+
+Health checks distinguish:
+
+- process readiness;
+- MCP transport readiness;
+- device HTTP reachability;
+- identity match;
+- WebRTC/RPC readiness;
+- HID readiness;
+- video freshness and decoder readiness;
+- extension capability.
+
+No single green health check is presented as proof of end-to-end physical control.
+
+## 21. Delivery milestones
+
+1. **Control baseline:** configuration, identity, policy, HTTP status, WebRTC/RPC/HID, actors, receipts, CLI, MCP, and bounded HIL.
+2. **Product onboarding:** release installers, installation receipts, self-update ownership, Codex/Claude plugins, canonical skill, setup/doctor/uninstall, and concise public documentation.
+3. **Multimodal observation:** production embedded H.264 decoder, fresh screenshot observations, ImageContent, pointer bindings, and host-side HIL.
+4. **Additional hardware:** ATX/DC fixtures, virtual media threat model, and any Cloud design as separately reviewed scopes.
+
+## 22. Non-negotiable invariants
+
+1. One stable device identity is the target authority.
+2. CLI and MCP share one execution and policy core.
+3. Tool discovery and direct execution enforce the same compiled policy.
+4. A session-opening operation honors takeover policy.
+5. Same-device writes serialize; different devices do not share a global lock.
+6. Input terminal paths converge on neutralization.
+7. No automatic replay occurs after an ambiguous physical send.
+8. Confirmation binds the exact effect, target, generation, arguments, and policy revision.
+9. Credentials are never model-visible tool arguments.
+10. Untrusted observations cannot grant authority.
+11. MCP statelessness never erases hardware lifecycle state.
+12. The original installer owns updates.
+13. Setup and uninstall mutate only resources with proven ownership.
+14. Plugins invoke the installed binary and never carry a hidden second copy.
+15. Unsupported multimodal capability remains absent rather than simulated.

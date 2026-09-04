@@ -1,0 +1,6 @@
+# Start the server separately on loopback, then merge this block into Codex's
+# config. Replace the placeholder with the environment variable mechanism
+# supported by the target Codex release; do not commit a bearer token.
+[mcp_servers.jetkvm]
+url = "http://127.0.0.1:7456/mcp"
+bearer_token_env_var = "JETKVM_MCP_BEARER_TOKEN"
