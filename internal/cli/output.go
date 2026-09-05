@@ -8,9 +8,11 @@ import (
 	"fmt"
 	"io"
 
+	"github.com/kaaanata/jetkvm-cli/internal/config"
 	"github.com/kaaanata/jetkvm-cli/internal/control"
 	"github.com/kaaanata/jetkvm-cli/internal/domain"
 	"github.com/kaaanata/jetkvm-cli/internal/input"
+	"github.com/kaaanata/jetkvm-cli/internal/onboarding"
 	"github.com/kaaanata/jetkvm-cli/internal/operation"
 	setupcore "github.com/kaaanata/jetkvm-cli/internal/setup"
 	"github.com/kaaanata/jetkvm-cli/internal/terminal"
@@ -146,6 +148,17 @@ func classifyFailure(err error) failureDetail {
 	detail := failureDetail{Kind: "internal", Message: safeErrorMessage(err), ExitCode: ExitInternal}
 	_, isUsage := errors.AsType[*usageFailure](err)
 	switch {
+	case errors.Is(err, onboarding.ErrPolicyDenied):
+		detail.Kind, detail.ExitCode = "configuration_denied", ExitAuth
+	case errors.Is(err, onboarding.ErrInvalid):
+		detail.Kind, detail.ExitCode = "invalid_argument", ExitUsage
+	case errors.Is(err, onboarding.ErrRevisionConflict), errors.Is(err, onboarding.ErrConflict):
+		detail.Kind, detail.ExitCode = "configuration_conflict", ExitConflict
+	case errors.Is(err, onboarding.ErrActiveControls):
+		detail.Kind, detail.ExitCode = "configuration_busy", ExitConflict
+	case errors.Is(err, config.ErrMissing):
+		detail.Kind, detail.ExitCode = "configuration_required", ExitUsage
+		detail.Message = "Connect your JetKVM through your agent, or run jetkvm setup device in an interactive terminal."
 	case isUsage:
 		detail.Kind, detail.ExitCode = "invalid_argument", ExitUsage
 	case errors.Is(err, updatecore.ErrRollbackFailed):

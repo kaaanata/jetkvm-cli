@@ -17,6 +17,7 @@ import (
 
 	"github.com/kaaanata/jetkvm-cli/internal/automation"
 	"github.com/kaaanata/jetkvm-cli/internal/buildinfo"
+	"github.com/kaaanata/jetkvm-cli/internal/config"
 	"github.com/kaaanata/jetkvm-cli/internal/confirmation"
 	"github.com/kaaanata/jetkvm-cli/internal/control"
 	"github.com/kaaanata/jetkvm-cli/internal/domain"
@@ -168,6 +169,9 @@ type Dependencies struct {
 	ConfigPath    string
 	Updater       UpdateService
 	Setup         SetupService
+	MCPLoader     func(context.Context, string) (MCPServer, func() error, error)
+	OpenBrowser   func(context.Context, string) error
+	InputTerminal func(io.Reader) bool
 }
 
 // App owns one configured command tree and its output policy.
@@ -256,6 +260,9 @@ func (a *App) Execute(ctx context.Context, args []string) int {
 }
 
 func withDefaults(deps Dependencies) Dependencies {
+	if deps.InputTerminal == nil {
+		deps.InputTerminal = func(r io.Reader) bool { return terminal.IsTerminal(r) }
+	}
 	if deps.Stdin == nil {
 		deps.Stdin = os.Stdin
 	}
@@ -292,13 +299,38 @@ func (a *App) newRootCommand() *cobra.Command {
 			}
 			// Attach after runtime output defaults are known. Maintenance commands
 			// have no runtime and can attach immediately.
+			if cmd.Name() == "serve" && cmd.Parent() != nil && cmd.Parent().Name() == "mcp" && a.deps.MCPLoader != nil {
+				server, close, err := a.deps.MCPLoader(cmd.Context(), a.configPath)
+				if err != nil {
+					return err
+				}
+				a.deps.MCP, a.runtimeClose = server, close
+				return nil
+			}
 			if cmd.Annotations["runtime"] == "skip" || a.deps.Loader == nil {
 				return a.startActivity(cmd)
 			}
 			if strings.TrimSpace(a.configPath) == "" {
 				return usageError(errors.New("--config is required"))
 			}
+			if cmd.Name() == "list" && cmd.Parent() != nil && cmd.Parent().Name() == "devices" && a.canGuideDevice() {
+				needed, err := a.deviceSetupNeeded()
+				if err != nil {
+					return err
+				}
+				if needed {
+					if _, err := a.guideDevice(cmd.Context()); err != nil {
+						return err
+					}
+				}
+			}
 			runtime, err := a.deps.Loader.Load(cmd.Context(), a.configPath)
+			if errors.Is(err, config.ErrMissing) && a.canGuideDevice() && (cmd.Parent() == nil || cmd.Parent().Name() != "mcp") {
+				if _, setupErr := a.guideDevice(cmd.Context()); setupErr != nil {
+					return setupErr
+				}
+				runtime, err = a.deps.Loader.Load(cmd.Context(), a.configPath)
+			}
 			if err != nil {
 				return err
 			}
@@ -342,6 +374,7 @@ func (a *App) newRootCommand() *cobra.Command {
 		a.newCapabilitiesCommand(),
 		a.newDoctorCommand(),
 		a.newSetupCommand(),
+		a.newConfigCommand(),
 		a.newUpdateCommand(),
 		a.newInputCommand(),
 		a.newScreenshotCommand(),

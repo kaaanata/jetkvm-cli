@@ -104,16 +104,30 @@ func (a *App) newSetupCommand() *cobra.Command {
 	flags := new(setupFlags)
 	command := &cobra.Command{
 		Use:         "setup",
-		Short:       "Install JetKVM MCP and skills into coding agents",
+		Short:       "Connect your JetKVM and set up coding agents",
 		Args:        noArgs,
 		Annotations: map[string]string{"runtime": "skip"},
 		RunE: func(command *cobra.Command, _ []string) error {
+			if a.canGuideDevice() && !flags.yes && !flags.dryRun && !flags.migrate && !command.Flags().Changed("mode") && !command.Flags().Changed("scope") && !command.Flags().Changed("workspace") {
+				needed, err := a.deviceSetupNeeded()
+				if err != nil {
+					return err
+				}
+				if needed {
+					receipt, err := a.guideDevice(command.Context())
+					if err != nil {
+						return err
+					}
+					return a.writeResult("setup.device", receipt)
+				}
+			}
 			return a.runSetupMany(command.Context(), []setupcore.Host{setupcore.HostCodex, setupcore.HostClaudeCode}, *flags)
 		},
 	}
 	addSetupFlags(command, flags)
 	command.AddCommand(a.newSetupHostCommand(setupcore.HostCodex, flags), a.newSetupHostCommand(setupcore.HostClaudeCode, flags))
 	command.AddCommand(a.newSetupDoctorCommand(flags), a.newSetupUninstallCommand(flags))
+	command.AddCommand(a.newDeviceSetupCommand())
 	return command
 }
 
