@@ -8,6 +8,7 @@
 - All public repository documentation, examples, plugin metadata, and skill content must be written in English.
 - `docs/design.md` is the source of truth for product scope, public MCP contracts, protocol assumptions, and safety invariants.
 - `docs/hil-inventory.md` records the sanitized current hardware test fixture and verification boundary. Never add its IP, MAC, CPU serial/device ID, account identity, credentials, or SSH key details.
+- Set `JETKVM_HIL_BINARY` to an absolute released executable path to run visual CLI HIL through the actual artifact. The fixture still owns temporary policy and state; never widen the operator's persistent configuration for release acceptance.
 - The product ships one `jetkvm` binary with a complete user/agent-facing control CLI and an embedded MCP server. CLI and MCP must call the same domain operations, policy, device actors, operation ledger, and receipts.
 - The repository license is Apache-2.0.
 - Target MCP protocol revision `2026-07-28` using the official Go SDK.
