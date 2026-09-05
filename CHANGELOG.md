@@ -1,6 +1,6 @@
 # Changelog
 
-## [1.1.0](https://github.com/kaaanata/jetkvm-cli/compare/v1.0.9...v1.1.0) (2026-09-05)
+## [1.0.10](https://github.com/kaaanata/jetkvm-cli/compare/v1.0.9...v1.0.10) (2026-09-05)
 
 
 ### Features

@@ -1,6 +1,6 @@
 {
   "name": "jetkvm",
-  "version": "1.1.0",
+  "version": "1.0.10",
   "description": "Safely inspect and control physical computers through one or more JetKVM devices.",
   "author": {
     "name": "kaaanata",
