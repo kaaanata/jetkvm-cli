@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.0.5](https://github.com/kaaanata/jetkvm-cli/compare/v1.0.4...v1.0.5) (2026-09-05)
+
+
+### Bug Fixes
+
+* complete terminal operation feedback ([#19](https://github.com/kaaanata/jetkvm-cli/issues/19)) ([806b3a9](https://github.com/kaaanata/jetkvm-cli/commit/806b3a9b3afff4de9d64b65e357a4783047de725))
+
 ## [1.0.4](https://github.com/kaaanata/jetkvm-cli/compare/v1.0.3...v1.0.4) (2026-09-05)
 
 
