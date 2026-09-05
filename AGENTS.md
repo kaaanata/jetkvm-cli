@@ -1,5 +1,7 @@
 # Project Notes
 
+- Preserve release-please's generated PR-body preamble, delimiters, and footer when refining release notes. They are machine-readable release metadata; removing them can prevent tagging and produce an incorrect follow-up PR.
+
 - Canonical operation/confirmation digests encode time.Duration as exact integer nanoseconds through the JSON v2 marshaler; do not rely on its undefined default duration format. Reject overflowing MCP millisecond inputs before conversion.
 - MCP keyboard/text/batch tools always obtain the domain confirmation plan. Confirmation uses compiled HID key identities, including aliases; do not duplicate key-name heuristics in adapters. CMD is an alias for COMMAND/META.
 - A deduplicated operation lookup returns the durable operation receipt, without fabricating a zero-valued batch or cleanup result. Omit absent batch evidence in CLI/MCP JSON and human output.

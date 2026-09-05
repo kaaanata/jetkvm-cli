@@ -586,3 +586,5 @@ No single green health check is presented as proof of end-to-end physical contro
 13. Setup and uninstall mutate only resources with proven ownership.
 14. Plugins invoke the installed binary and never carry a hidden second copy.
 15. Unsupported multimodal capability remains absent rather than simulated.
+Preserve the generated release PR body's preamble, delimiters, and footer when editing release notes; release-please parses these markers to create the tag after merge.
+
