@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.0.8](https://github.com/kaaanata/jetkvm-cli/compare/v1.0.7...v1.0.8) (2026-09-05)
+
+
+### Bug Fixes
+
+* wake sleeping video during observation ([478b4b5](https://github.com/kaaanata/jetkvm-cli/commit/478b4b58205ca402ac3e4175c2d5622451ebdf7e))
+
 ## [1.0.7](https://github.com/kaaanata/jetkvm-cli/compare/v1.0.6...v1.0.7) (2026-09-05)
 
 
