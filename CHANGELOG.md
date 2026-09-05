@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.0.4](https://github.com/kaaanata/jetkvm-cli/compare/v1.0.3...v1.0.4) (2026-09-05)
+
+
+### Bug Fixes
+
+* refine terminal UI and initial video startup ([#17](https://github.com/kaaanata/jetkvm-cli/issues/17)) ([e18f460](https://github.com/kaaanata/jetkvm-cli/commit/e18f4609debc87e039396615d49216c47114f3c3))
+
 ## [1.0.3](https://github.com/kaaanata/jetkvm-cli/compare/v1.0.2...v1.0.3) (2026-09-04)
 
 
