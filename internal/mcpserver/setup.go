@@ -33,7 +33,7 @@ func (s *Server) registerSetupTools(server *mcp.Server) {
 		mcp.AddTool(server, readOnlyTool("jetkvm_get_config", "Read JetKVM settings", "Read credential-free configuration and its revision before proposing a change. Use jetkvm_update_config for updates; never ask the user to edit JSON files."), s.getConfig)
 	}
 	if s.toolAllowed("jetkvm_update_config") {
-		mcp.AddTool(server, &mcp.Tool{Name: "jetkvm_update_config", Title: "Update JetKVM settings", Description: "Propose exact configuration changes against expected_revision from jetkvm_get_config. The human reviews the changes at the returned local URL; check jetkvm_setup_status afterward. Global input enablement and per-device input permission are independent explicit choices. Close active controls first. Stable identities, addresses, credential sources, power permissions, and confirmation requirements cannot be changed by this tool.", Annotations: &mcp.ToolAnnotations{DestructiveHint: new(false), OpenWorldHint: new(false)}}, s.updateConfig)
+		mcp.AddTool(server, &mcp.Tool{Name: "jetkvm_update_config", Title: "Update JetKVM settings", Description: "Propose exact configuration changes against expected_revision from jetkvm_get_config. The human reviews the changes at the returned local URL; check jetkvm_setup_status afterward. Global input enablement and per-device input permission are independent explicit choices. Close active controls first. Stable identities, addresses, credential sources, and power permissions cannot be changed by this tool. confirmation_required controls optional device-action confirmation; it defaults to false.", Annotations: &mcp.ToolAnnotations{DestructiveHint: new(false), OpenWorldHint: new(false)}}, s.updateConfig)
 	}
 }
 

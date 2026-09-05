@@ -147,3 +147,25 @@ func TestCompileRejectsDuplicateExposedIdentity(t *testing.T) {
 		t.Fatal("Compile succeeded")
 	}
 }
+
+func TestConfirmationSwitchChangesRevisionWithoutChangingPermissions(t *testing.T) {
+	cfg := testConfig(t)
+	disabled, err := Compile(cfg, inventory.Static())
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg.Confirmation.Required = true
+	enabled, err := Compile(cfg, inventory.Static())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if disabled.ConfirmationRequired() || !enabled.ConfirmationRequired() || disabled.Revision() == enabled.Revision() {
+		t.Fatal("confirmation setting was not compiled into policy revision")
+	}
+	for _, compiled := range []*Compiled{disabled, enabled} {
+		decision := compiled.Evaluate(Evaluation{ToolName: "jetkvm_power_action", DeviceID: "stable-1"})
+		if decision.Allowed || decision.Reason != DeniedDeploymentCeiling {
+			t.Fatalf("confirmation changed permissions: %+v", decision)
+		}
+	}
+}

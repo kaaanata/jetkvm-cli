@@ -16,6 +16,7 @@ func SettingChanges(before, after Settings) []SettingChange {
 			changes = append(changes, SettingChange{field, fmt.Sprint(a), fmt.Sprint(b)})
 		}
 	}
+	add("Require secondary device-action confirmation", before.ConfirmationRequired, after.ConfirmationRequired)
 	add("Default output", before.Output, after.Output)
 	add("Global keyboard and mouse permission", before.InputEnabled, after.InputEnabled)
 	for _, old := range before.Devices {
@@ -73,7 +74,7 @@ func (b *Browser) serveUpdate(w http.ResponseWriter, r *http.Request, s *browser
 var settingsPage = template.Must(template.New("settings").Parse(`<!doctype html>
 <html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Review JetKVM settings</title>
 <style>body{font:17px system-ui;color:#e8edf4;background:#111820;padding:30px 20px}main{max-width:640px;margin:4vh auto}p{line-height:1.5;color:#aab8c8}article{padding:14px 0;border-bottom:1px solid #435264}strong{display:block}del{color:#ffb4a9}ins{color:#b0e4bc;text-decoration:none}button{display:block;margin-top:24px;padding:13px 22px;background:#83c9f4;border:0;border-radius:7px;font:inherit}label{display:block;margin-top:24px}.error{color:#ffb4a9}</style>
-<main>{{if .Done}}<h1>Settings updated</h1><p>Return to your agent or terminal. Your saved configuration is active. No input or power action was sent.</p>{{else}}<h1>Review settings changes</h1><p>These are the exact changes requested by your agent or command. Existing device identities, passwords, power permissions, and confirmation requirements will not change.</p>
+<main>{{if .Done}}<h1>Settings updated</h1><p>Return to your agent or terminal. Your saved configuration is active. No input or power action was sent.</p>{{else}}<h1>Review settings changes</h1><p>These are the exact changes requested by your agent or command. Existing device identities, passwords, and power permissions will not change.</p>
 {{range .Changes}}<article><strong>{{.Field}}</strong><del>{{.Before}}</del> → <ins>{{.After}}</ins></article>{{else}}<p>The requested values are already configured.</p>{{end}}
 {{if .Message}}<p class="error" role="alert">{{.Message}}</p>{{end}}
 <form method="post"><label><input type="checkbox" name="approve" value="yes" required> Apply these configuration changes.</label><button type="submit">Save settings</button></form><p>Close this page to cancel. The link expires in 10 minutes.</p>{{end}}</main></html>`))

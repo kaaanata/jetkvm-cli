@@ -56,13 +56,14 @@ type DevicePolicy struct {
 }
 
 type Compiled struct {
-	catalog       inventory.Catalog
-	toolsetsAllow map[string]struct{}
-	toolsetsDeny  map[string]struct{}
-	toolsAllow    map[string]struct{}
-	toolsDeny     map[string]struct{}
-	devices       map[string]DevicePolicy
-	revision      string
+	catalog              inventory.Catalog
+	toolsetsAllow        map[string]struct{}
+	toolsetsDeny         map[string]struct{}
+	toolsAllow           map[string]struct{}
+	toolsDeny            map[string]struct{}
+	devices              map[string]DevicePolicy
+	revision             string
+	confirmationRequired bool
 }
 
 func Compile(configuration config.Config, catalog inventory.Catalog) (*Compiled, error) {
@@ -70,12 +71,13 @@ func Compile(configuration config.Config, catalog inventory.Catalog) (*Compiled,
 		return nil, err
 	}
 	compiled := &Compiled{
-		catalog:       catalog,
-		toolsetsAllow: makeSet(configuration.Toolsets.Allow),
-		toolsetsDeny:  makeSet(configuration.Toolsets.Deny),
-		toolsAllow:    makeSet(configuration.Tools.Allow),
-		toolsDeny:     makeSet(configuration.Tools.Deny),
-		devices:       make(map[string]DevicePolicy),
+		catalog:              catalog,
+		confirmationRequired: configuration.Confirmation.Required,
+		toolsetsAllow:        makeSet(configuration.Toolsets.Allow),
+		toolsetsDeny:         makeSet(configuration.Toolsets.Deny),
+		toolsAllow:           makeSet(configuration.Tools.Allow),
+		toolsDeny:            makeSet(configuration.Tools.Deny),
+		devices:              make(map[string]DevicePolicy),
 	}
 	var errs []error
 	for _, name := range append(slices.Clone(configuration.Tools.Allow), configuration.Tools.Deny...) {
@@ -109,6 +111,9 @@ func Compile(configuration config.Config, catalog inventory.Catalog) (*Compiled,
 	compiled.revision = revision
 	return compiled, nil
 }
+
+// ConfirmationRequired reports whether configured actions need an additional approval.
+func (c *Compiled) ConfirmationRequired() bool { return c.confirmationRequired }
 
 func (c *Compiled) Revision() string {
 	return c.revision
@@ -202,18 +207,20 @@ func makeSet(values []string) map[string]struct{} {
 
 func computeRevision(compiled *Compiled) (string, error) {
 	payload := struct {
-		Catalog       []inventory.ToolDefinition
-		ToolsetsAllow []string
-		ToolsetsDeny  []string
-		ToolsAllow    []string
-		ToolsDeny     []string
-		Devices       []DevicePolicy
+		ConfirmationRequired bool
+		Catalog              []inventory.ToolDefinition
+		ToolsetsAllow        []string
+		ToolsetsDeny         []string
+		ToolsAllow           []string
+		ToolsDeny            []string
+		Devices              []DevicePolicy
 	}{
-		Catalog:       compiled.catalog.All(),
-		ToolsetsAllow: slices.Sorted(maps.Keys(compiled.toolsetsAllow)),
-		ToolsetsDeny:  slices.Sorted(maps.Keys(compiled.toolsetsDeny)),
-		ToolsAllow:    slices.Sorted(maps.Keys(compiled.toolsAllow)),
-		ToolsDeny:     slices.Sorted(maps.Keys(compiled.toolsDeny)),
+		ConfirmationRequired: compiled.confirmationRequired,
+		Catalog:              compiled.catalog.All(),
+		ToolsetsAllow:        slices.Sorted(maps.Keys(compiled.toolsetsAllow)),
+		ToolsetsDeny:         slices.Sorted(maps.Keys(compiled.toolsetsDeny)),
+		ToolsAllow:           slices.Sorted(maps.Keys(compiled.toolsAllow)),
+		ToolsDeny:            slices.Sorted(maps.Keys(compiled.toolsDeny)),
 		Devices: slices.SortedFunc(maps.Values(compiled.devices), func(a, b DevicePolicy) int {
 			if a.DeviceID < b.DeviceID {
 				return -1

@@ -41,6 +41,7 @@ func TestHILMCPBinary(t *testing.T) {
 			t.Fatal("MCP HIL requires takeover confirmation")
 		}
 	}
+	cfg.Confirmation.Required = true // This suite explicitly exercises proof issuance.
 	dir := t.TempDir()
 	cfg.State.Path = filepath.Join(dir, "state.db")
 	data, err := json.Marshal(cfg)

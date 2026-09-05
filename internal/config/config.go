@@ -8,14 +8,15 @@ import (
 const CurrentVersion = 1
 
 type Config struct {
-	Version   int                     `json:"version"`
-	Transport TransportConfig         `json:"transport"`
-	Output    OutputConfig            `json:"output"`
-	State     StateConfig             `json:"state"`
-	Toolsets  Selection               `json:"toolsets"`
-	Tools     Selection               `json:"tools"`
-	Devices   map[string]DeviceConfig `json:"devices"`
-	Retention RetentionConfig         `json:"retention"`
+	Version      int                     `json:"version"`
+	Transport    TransportConfig         `json:"transport"`
+	Output       OutputConfig            `json:"output"`
+	Confirmation ConfirmationConfig      `json:"confirmation"`
+	State        StateConfig             `json:"state"`
+	Toolsets     Selection               `json:"toolsets"`
+	Tools        Selection               `json:"tools"`
+	Devices      map[string]DeviceConfig `json:"devices"`
+	Retention    RetentionConfig         `json:"retention"`
 }
 
 type Selection struct {
@@ -49,6 +50,12 @@ const (
 
 type OutputConfig struct {
 	Default OutputMode `json:"default"`
+}
+
+// ConfirmationConfig controls optional secondary device-action approvals.
+// It does not grant device permissions or change action ownership checks.
+type ConfirmationConfig struct {
+	Required bool `json:"required"`
 }
 
 type StateConfig struct {

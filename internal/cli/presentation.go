@@ -34,7 +34,7 @@ func resultDocument(command string, data any) (terminal.Document, error) {
 		d.Sections = append(d.Sections, fields("Device", row("name", v.Name), row("address", v.Origin)), terminal.Section{Text: "Ask your agent to inspect the device, or run jetkvm devices list. To add the agent integration, run jetkvm setup codex or jetkvm setup claude-code."})
 	case onboarding.Settings:
 		d.Title = "JetKVM settings"
-		d.Sections = append(d.Sections, fields("Defaults", row("output", v.Output), row("input enabled", v.InputEnabled), row("revision", v.Revision)))
+		d.Sections = append(d.Sections, fields("Defaults", row("output", v.Output), row("input enabled", v.InputEnabled), row("action confirmation required", v.ConfirmationRequired), row("revision", v.Revision)))
 		for _, device := range v.Devices {
 			d.Sections = append(d.Sections, fields(device.Name, row("address", device.Origin), row("device ID", device.DeviceID), row("exposed", device.Exposed), row("permissions", strings.Join(device.Permissions, ", ")), row("takeover allowed", device.TakeoverAllowed), row("idle timeout", device.IdleTimeout), row("absolute lifetime", device.AbsoluteLifetime)))
 		}

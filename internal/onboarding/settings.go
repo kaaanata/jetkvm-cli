@@ -35,10 +35,11 @@ func authorizeSettings(cfg config.Config, tool string) error {
 // Settings is an allowlisted, credential-free view. It intentionally does not
 // expose keychain account names, environment variable names, or state paths.
 type Settings struct {
-	Revision     string            `json:"revision"`
-	Output       config.OutputMode `json:"output"`
-	InputEnabled bool              `json:"input_enabled"`
-	Devices      []DeviceSettings  `json:"devices"`
+	Revision             string            `json:"revision"`
+	Output               config.OutputMode `json:"output"`
+	InputEnabled         bool              `json:"input_enabled"`
+	ConfirmationRequired bool              `json:"confirmation_required"`
+	Devices              []DeviceSettings  `json:"devices"`
 }
 
 type DeviceSettings struct {
@@ -56,10 +57,11 @@ type DeviceSettings struct {
 // pins, credential sources, or the administrative policy that authorizes it.
 // Global input is an explicit separate choice, never inferred from a device.
 type SettingsPatch struct {
-	ExpectedRevision string             `json:"expected_revision"`
-	Output           *config.OutputMode `json:"output,omitempty"`
-	InputEnabled     *bool              `json:"input_enabled,omitempty"`
-	Device           *DevicePatch       `json:"device,omitempty"`
+	ExpectedRevision     string             `json:"expected_revision"`
+	Output               *config.OutputMode `json:"output,omitempty"`
+	InputEnabled         *bool              `json:"input_enabled,omitempty"`
+	ConfirmationRequired *bool              `json:"confirmation_required,omitempty"`
+	Device               *DevicePatch       `json:"device,omitempty"`
 }
 
 type DevicePatch struct {
@@ -95,7 +97,7 @@ func (s *Service) readSettings() (config.Config, []byte, error) {
 }
 
 func settingsView(cfg config.Config, data []byte) Settings {
-	v := Settings{Revision: revision(data), Output: cfg.Output.Default, InputEnabled: inputEnabled(cfg), Devices: []DeviceSettings{}}
+	v := Settings{ConfirmationRequired: cfg.Confirmation.Required, Revision: revision(data), Output: cfg.Output.Default, InputEnabled: inputEnabled(cfg), Devices: []DeviceSettings{}}
 	for name, d := range cfg.Devices {
 		v.Devices = append(v.Devices, DeviceSettings{DeviceID: d.DeviceID, Name: name, Origin: d.Origin, Exposed: d.Exposed, Permissions: slices.Clone(d.Permissions), TakeoverAllowed: d.Takeover.Allowed, IdleTimeout: d.Session.IdleTimeout.String(), AbsoluteLifetime: d.Session.AbsoluteLifetime.String()})
 	}
@@ -192,8 +194,11 @@ func (s *Service) update(ctx context.Context, patch SettingsPatch) (Receipt, err
 }
 
 func applySettings(cfg *config.Config, patch SettingsPatch) error {
-	if patch.ExpectedRevision == "" || patch.Output == nil && patch.InputEnabled == nil && patch.Device == nil {
+	if patch.ExpectedRevision == "" || patch.Output == nil && patch.InputEnabled == nil && patch.ConfirmationRequired == nil && patch.Device == nil {
 		return ErrInvalid
+	}
+	if patch.ConfirmationRequired != nil {
+		cfg.Confirmation.Required = *patch.ConfirmationRequired
 	}
 	if patch.Output != nil {
 		cfg.Output.Default = *patch.Output

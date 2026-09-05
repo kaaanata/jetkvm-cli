@@ -35,7 +35,7 @@ func (a *App) newConfigCommand() *cobra.Command {
 		return a.writeResult("config.show", settings)
 	}}
 	var target, output, idle, lifetime string
-	var globalInput, deviceInput, exposed, takeover, yes bool
+	var globalInput, deviceInput, exposed, takeover, requireConfirmation, yes bool
 	set := &cobra.Command{Use: "set", Short: "Review and save explicit settings changes", Args: noArgs, Annotations: map[string]string{"runtime": "skip"}, RunE: func(cmd *cobra.Command, _ []string) error {
 		service, err := a.settingsService()
 		if err != nil {
@@ -46,6 +46,9 @@ func (a *App) newConfigCommand() *cobra.Command {
 			return err
 		}
 		patch := onboarding.SettingsPatch{ExpectedRevision: settings.Revision}
+		if cmd.Flags().Changed("require-confirmation") {
+			patch.ConfirmationRequired = new(requireConfirmation)
+		}
 		if cmd.Flags().Changed("default-output") {
 			patch.Output = new(config.OutputMode(output))
 		}
@@ -110,10 +113,11 @@ func (a *App) newConfigCommand() *cobra.Command {
 	}}
 	set.Flags().StringVar(&target, "device", "", "configured device name or stable ID")
 	set.Flags().StringVar(&output, "default-output", "", "default result format: auto, text, or json")
+	set.Flags().BoolVar(&requireConfirmation, "require-confirmation", false, "require secondary device-action confirmation (default false)")
 	set.Flags().BoolVar(&globalInput, "enable-input", false, "explicit global keyboard and mouse permission")
 	set.Flags().BoolVar(&deviceInput, "input", false, "keyboard and mouse permission for --device")
 	set.Flags().BoolVar(&exposed, "exposed", false, "expose --device to clients")
-	set.Flags().BoolVar(&takeover, "takeover", false, "allow session takeover for --device; confirmation remains required")
+	set.Flags().BoolVar(&takeover, "takeover", false, "allow session takeover for --device")
 	set.Flags().StringVar(&idle, "idle-timeout", "", "idle control timeout for --device, for example 5m")
 	set.Flags().StringVar(&lifetime, "absolute-lifetime", "", "absolute control lifetime for --device, for example 30m")
 	set.Flags().BoolVarP(&yes, "yes", "y", false, "approve these exact settings without prompting")

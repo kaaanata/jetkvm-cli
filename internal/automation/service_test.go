@@ -568,6 +568,7 @@ func newTestService(t *testing.T, permissions []string, extension string) (*Serv
 
 func policyTestConfig(permissions []string) config.Config {
 	cfg := config.Default()
+	cfg.Confirmation.Required = true
 	cfg.State.Path = "/state.db"
 	cfg.Toolsets.Allow = []string{"video", "input", "power"}
 	cfg.Devices["lab"] = config.DeviceConfig{
@@ -768,5 +769,75 @@ func TestInputConfirmationUsesCompiledKeyIdentity(t *testing.T) {
 	}
 	if requiresInputCommit(input.Batch{Actions: []input.Action{{Type: input.ActionKeypress, Keys: []string{"SHIFT", "A"}}}}) {
 		t.Fatal("ordinary shifted key unexpectedly requires confirmation")
+	}
+}
+
+func TestSecondaryConfirmationDisabledPreservesExecutionBoundaries(t *testing.T) {
+	service, session, _ := newTestService(t, []string{"video", "input", "power"}, "atx-power")
+	cfg := policyTestConfig([]string{"video", "input", "power"})
+	cfg.Confirmation.Required = false
+	device := cfg.Devices["lab"]
+	device.Takeover.RequireConfirmation = true
+	cfg.Devices["lab"] = device
+	compiled, err := policy.Compile(cfg, inventory.Static())
+	if err != nil {
+		t.Fatal(err)
+	}
+	service.policy = compiled
+	// No verifier is needed when the policy does not require a secondary approval.
+	service.confirmations = nil
+	open := OpenControlRequest{DeviceID: testDeviceID, Capabilities: []string{"input", "video", "power"}}
+	plan, err := service.PrepareOpenControl(open)
+	if err != nil || plan.Required {
+		t.Fatalf("open plan = %+v, %v", plan, err)
+	}
+	handle, err := service.OpenControl(t.Context(), open)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ref := control.Ref{ID: handle.ID, ExpectedGeneration: handle.Generation}
+	request := RunActionsRequest{DeviceID: testDeviceID, Ref: ref, OperationID: uuid.NewV7(), Batch: input.Batch{Actions: []input.Action{
+		{Type: input.ActionKeypress, Keys: []string{"COMMAND", "SPACE"}},
+	}}}
+	plan, err = service.PrepareRunActions(request)
+	if err != nil || plan.Required {
+		t.Fatalf("input plan = %+v, %v", plan, err)
+	}
+	result, err := service.RunActions(t.Context(), request)
+	if err != nil || result.Operation.Stage != operation.StageCompleted || !result.Batch.Neutralized {
+		t.Fatalf("input result = %+v, %v", result, err)
+	}
+	sent := session.sendCount()
+	request.Ref.ExpectedGeneration++
+	request.OperationID = uuid.NewV7()
+	if _, err := service.RunActions(t.Context(), request); err == nil {
+		t.Fatal("stale generation accepted")
+	}
+	if session.sendCount() != sent {
+		t.Fatal("stale generation sent input")
+	}
+	power := PowerActionRequest{DeviceID: testDeviceID, Ref: ref, OperationID: uuid.NewV7(), Action: PowerReset}
+	plan, err = service.PreparePowerAction(power)
+	if err != nil || plan.Required {
+		t.Fatalf("power plan = %+v, %v", plan, err)
+	}
+	receipt, err := service.PowerAction(t.Context(), power)
+	if err != nil || receipt.Stage != operation.StageCompleted || receipt.RetrySafe {
+		t.Fatalf("power receipt = %+v, %v", receipt, err)
+	}
+	if session.rpcCount("setATXPowerAction") != 1 {
+		t.Fatal("power action was not sent exactly once")
+	}
+	if _, err := service.CloseControl(t.Context(), ControlRequest{DeviceID: testDeviceID, Ref: ref}); err != nil {
+		t.Fatal(err)
+	}
+	device.Takeover.Allowed = false
+	cfg.Devices["lab"] = device
+	service.policy, err = policy.Compile(cfg, inventory.Static())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.OpenControl(t.Context(), open); !errors.Is(err, domain.ErrTakeoverDisabled) {
+		t.Fatalf("takeover denial = %v", err)
 	}
 }

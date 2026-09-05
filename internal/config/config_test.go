@@ -207,3 +207,22 @@ func TestNarrowSelectsFromUnrestrictedToolCeiling(t *testing.T) {
 		t.Fatalf("tools allow = %v", narrowed.Tools.Allow)
 	}
 }
+
+func TestConfirmationDefaultsAndStrictDecode(t *testing.T) {
+	for _, value := range []string{"", `"confirmation":{"required":false},`, `"confirmation":{"required":true},`} {
+		input := strings.Replace(validConfig, `"version": 1,`, `"version": 1,`+value, 1)
+		cfg, err := Decode(strings.NewReader(input))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if cfg.Confirmation.Required != strings.Contains(value, "true") {
+			t.Fatalf("confirmation %q: %+v", value, cfg.Confirmation)
+		}
+	}
+	for _, value := range []string{`{"required":"false"}`, `{"required":false,"allow_all":true}`} {
+		input := strings.Replace(validConfig, `"version": 1,`, `"version": 1,"confirmation":`+value+`,`, 1)
+		if _, err := Decode(strings.NewReader(input)); err == nil {
+			t.Fatalf("accepted invalid confirmation %s", value)
+		}
+	}
+}

@@ -90,3 +90,50 @@ func TestSettingsRejectsInvalidOrImplicitPrivilegeChanges(t *testing.T) {
 		t.Fatal("rejected change mutated config")
 	}
 }
+
+func TestConfirmationSettingRoundTripPreservesPermissionsAndRevision(t *testing.T) {
+	t.Parallel()
+	s, path := configuredSettings(t)
+	original, err := config.Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	initial, err := s.Settings()
+	if err != nil || initial.ConfirmationRequired {
+		t.Fatalf("initial confirmation: %+v, %v", initial, err)
+	}
+	for _, required := range []bool{true, false} {
+		current, err := s.Settings()
+		if err != nil {
+			t.Fatal(err)
+		}
+		patch := SettingsPatch{ExpectedRevision: current.Revision, ConfirmationRequired: new(required)}
+		before, after, err := s.Preview(patch)
+		if err != nil || after.ConfirmationRequired != required {
+			t.Fatalf("preview: %+v, %v", after, err)
+		}
+		changes := SettingChanges(before, after)
+		if len(changes) != 1 || changes[0].Field != "Require secondary device-action confirmation" {
+			t.Fatalf("changes: %+v", changes)
+		}
+		if _, err := s.Update(t.Context(), patch); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := s.Update(t.Context(), patch); !errors.Is(err, ErrRevisionConflict) {
+			t.Fatalf("stale confirmation patch: %v", err)
+		}
+		stored, err := config.Load(path)
+		if err != nil || stored.Confirmation.Required != required {
+			t.Fatalf("stored confirmation: %+v, %v", stored.Confirmation, err)
+		}
+		for name, device := range original.Devices {
+			got := stored.Devices[name]
+			if !slices.Equal(got.Permissions, device.Permissions) || got.Takeover != device.Takeover || got.DeviceID != device.DeviceID || got.Credentials != device.Credentials {
+				t.Fatal("confirmation change altered device authority")
+			}
+		}
+		if !slices.Equal(stored.Toolsets.Allow, original.Toolsets.Allow) || !slices.Equal(stored.Toolsets.Deny, original.Toolsets.Deny) {
+			t.Fatal("confirmation change altered tool permissions")
+		}
+	}
+}

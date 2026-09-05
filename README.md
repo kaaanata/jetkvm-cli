@@ -48,7 +48,7 @@ Changes require approval (`--yes` for an explicitly authorized script), reject s
 
 ## Screenshots and input
 
-Guided setup enables status and screen viewing. Keyboard and mouse control are an explicit setup choice, or can be enabled later through your agent or `config set` as shown above. Session takeover still requires confirmation; power permissions are not enabled. The administrator example is deliberately more restrictive and remains HTTP-observation-only until its policy is explicitly changed.
+Guided setup enables status and screen viewing. Keyboard and mouse control are an explicit setup choice, or can be enabled later through your agent or `config set` as shown above. Session takeover still requires permission; optional secondary confirmation is disabled by default. Power permissions are not enabled. The administrator example is deliberately more restrictive and remains HTTP-observation-only until its policy is explicitly changed.
 
 Replace `lab` with a configured device alias or stable ID. Coordinates below are examples; choose them from the current screen and run only the action you intend.
 
@@ -131,7 +131,7 @@ Run `jetkvm help` or `jetkvm <command> --help` for the complete command referenc
 ## Safety
 
 - Devices must be explicitly configured, exposed, and authorized.
-- Risky actions require a confirmation bound to the exact device and operation.
+- Device actions execute without a second confirmation by default. Enable `confirmation.required` with `jetkvm config set --require-confirmation=true --yes` for argument-bound risk confirmations.
 - Credentials are never MCP tool arguments and are never written to receipts.
 - A physical action is not automatically retried after an ambiguous delivery result.
 - MCP defaults to local stdio; HTTP transport is restricted to loopback.

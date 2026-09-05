@@ -1,11 +1,13 @@
 # Project Notes
 
+- Device-action second confirmation is controlled by top-level confirmation.required, default false even for older configurations that omit it. CLI config set --require-confirmation and MCP confirmation_required update it through revision-bound settings. This never changes permissions, takeover allowance, generation fencing, receipts or cleanup. Configuration/integration maintenance approval remains separate.
+
 - WebRTC establishment has a 20-second connection deadline and reports the phase that timed out. That deadline does not bound the lifetime of a successfully opened MCP session.
 
 - Operation recovery must acquire the per-operation OS lock before converting send_started to ambiguous. New store connections must not recover live sends owned by other CLI/MCP processes. Drain legacy pre-lock processes during upgrade; never relax terminal transition rules to hide the race.
 
 - MCP confirmations are approval-only empty-object forms. The sealed request state remains the device/arguments/policy/nonce authority; host approval policy may auto-approve, but declines/cancels never mint proofs. Distinguish host decline, cancellation and invalid responses without logging form contents or sealed tokens.
-- Bounded `key_hold` actions require confirmation, run through the existing input lease/ledger, and use HID-RPC keepalive 0x09 with final neutralization. Limit holds to 12 seconds; never represent Keyboard Power or USB wake as proof of a physical power-button hold.
+- Bounded `key_hold` actions require confirmation when the global switch is enabled, run through the existing input lease/ledger, and use HID-RPC keepalive 0x09 with final neutralization. Limit holds to 12 seconds; never represent Keyboard Power or USB wake as proof of a physical power-button hold.
 
 - Screen observation automatically attempts one ledger-owned Shift press/release when firmware reports capture sleep or no HDMI signal and both input policy and handle capability allow it. No signal is not proof of host sleep. CLI screenshots prepare input capability only when policy allows; `--no-wake` / MCP `disable_wake` opt out. Video-only handles never send HID. Preserve wake receipts on capture failure, never retry ambiguous wake delivery, and poll only read-only readiness after waking.
 
@@ -20,7 +22,7 @@
 - `setup device` and first-use interactive `devices list` guide enrollment; `config show` and `config set` provide credential-free reads and revision-bound changes. New configurations allow the non-device-scoped `setup` toolset. Existing explicit policy ceilings remain authoritative, including for CLI settings writes.
 - MCP exposes `jetkvm_setup`, `jetkvm_setup_status`, `jetkvm_get_config`, and `jetkvm_update_config`. Settings proposals bind an exact revision and server-owned before/after values; browser approvals cannot alter the proposed patch. Administrative tools never open WebRTC or send HID.
 - `app.MCPHost` owns bootstrap, configuration revision reconciliation, handler publication, and runtime retirement. Join in-flight calls and require actor quiescence before activation; preserve cleanup access while an external CLI change is pending. Do not force-close active controls, ask for an MCP restart, introduce a competing file watcher, or serialize ordinary calls across independent devices.
-- Settings updates currently cover output defaults, explicit global input enablement, device exposure/input/takeover permission, and control lifetimes. Stable identity/route bindings, TLS pins, credentials, power permissions, administrative policy, and confirmation requirements are not generic mutable settings.
+- Settings updates currently cover output defaults, explicit global input enablement, device exposure/input/takeover permission, and control lifetimes. Stable identity/route bindings, TLS pins, credentials, power permissions and administrative policy are not generic mutable settings. Secondary confirmation is the explicit confirmation_required setting.
 - Enrollment is an atomic, private-file, cross-process-locked commit. Settings changes use the same writer plus an expected-revision check. Keep old credentials intact unless ownership authorizes deletion; never delete a newly owned credential after its configuration has committed, even if later runtime activation fails.
 
 - Release signing pins Cosign 3 and verifies its output with the production Go updater verifier before upload. A signed release must be consumable by the installed updater, not merely accepted by the signing CLI.

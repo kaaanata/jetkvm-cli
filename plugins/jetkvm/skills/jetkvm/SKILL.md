@@ -28,6 +28,8 @@ Read [safety.md](references/safety.md) before any input, takeover, or power oper
 
 ## Operating principles
 
+Device actions do not ask for a second confirmation by default. `confirmation.required` enables the existing risk-based confirmation flow when desired; read/change it through the revision-bound settings tools (`confirmation_required`). Permissions, takeover allowance, generation fences and receipts remain mandatory. Configuration/integration maintenance approval is separate.
+
 - Prefer read-only status and capability tools when they answer the request.
 - Open control only when the requested action requires it. Opening a session can disconnect an existing browser session and may require confirmation.
 - Execute the smallest deterministic action or bounded batch that accomplishes the user's stated goal.

@@ -122,7 +122,7 @@ func (s *Service) OpenControl(ctx context.Context, request OpenControlRequest) (
 	if !devicePolicy.TakeoverAllowed {
 		return control.Handle{}, domain.ErrTakeoverDisabled
 	}
-	if devicePolicy.TakeoverRequiresConfirmation {
+	if s.policy.ConfirmationRequired() && devicePolicy.TakeoverRequiresConfirmation {
 		if s.confirmations == nil {
 			return control.Handle{}, ErrTakeoverConfirmationRequired
 		}
@@ -160,7 +160,7 @@ func (s *Service) PrepareOpenControl(request OpenControlRequest) (ConfirmationPl
 	if err != nil {
 		return ConfirmationPlan{}, err
 	}
-	if !decision.Device.TakeoverRequiresConfirmation {
+	if !s.policy.ConfirmationRequired() || !decision.Device.TakeoverRequiresConfirmation {
 		return ConfirmationPlan{}, nil
 	}
 	binding, err := s.openControlConfirmationBinding(request, capabilities)
@@ -431,7 +431,7 @@ func (s *Service) PowerAction(ctx context.Context, request PowerActionRequest) (
 		if err != nil {
 			return err
 		}
-		if powerActionRequiresConfirmation(request.Action) {
+		if s.policy.ConfirmationRequired() && powerActionRequiresConfirmation(request.Action) {
 			binding := powerConfirmationBinding(request, canonical, s.policy.Revision())
 			if s.confirmations == nil {
 				return confirmation.ErrProofRequired
@@ -479,7 +479,7 @@ func (s *Service) PreparePowerAction(request PowerActionRequest) (ConfirmationPl
 	if _, ok := powerWireAction(request.Action); !ok {
 		return ConfirmationPlan{}, ErrInvalidPowerAction
 	}
-	if !powerActionRequiresConfirmation(request.Action) {
+	if !s.policy.ConfirmationRequired() || !powerActionRequiresConfirmation(request.Action) {
 		return ConfirmationPlan{}, nil
 	}
 	canonical, err := canonicalPowerAction(request)
@@ -549,7 +549,7 @@ func (s *Service) openControlConfirmationBinding(request OpenControlRequest, cap
 }
 
 func (s *Service) inputConfirmationBinding(request RunActionsRequest, canonical []byte) (confirmation.Binding, bool) {
-	if !requiresInputCommit(request.Batch) {
+	if !s.policy.ConfirmationRequired() || !requiresInputCommit(request.Batch) {
 		return confirmation.Binding{}, false
 	}
 	return confirmation.Binding{
