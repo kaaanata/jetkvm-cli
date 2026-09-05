@@ -12,6 +12,37 @@ screen. Narrow tables stack and long values wrap instead of being truncated.
 
 ## Verification
 
+### Outcome and help presentation
+
+Human results start with the recorded outcome. A current installation produces
+only `Already up to date — JetKVM <version>.` Applied updates and rollbacks show
+the previous and current versions. Artifact verification is reported only when
+the receipt records it; rollback does not imply a new signature check. The undo
+command appears only when rollback is available. Installer-owned updates show
+the owning installer and its required command without claiming an update ran.
+Input results preserve the terminal claim, delivery, verification, retry safety
+and neutralization fields. Setup failures retain their failure kind.
+
+Root help uses Inspect, Control, Integrate and Maintain groups, getting-started
+examples and live Cobra descriptions/flags. Newly registered commands remain
+visible under More commands; Cloud, when registered, belongs to Integrate.
+Headerless label/value rows fit their content and wrap within the measured width;
+actual data tables retain column headers and stack on narrow terminals.
+
+The PTY fixtures cover 40 and 80 columns in color and plain modes. To retain
+actual captured streams, plain text and SVG previews outside version control:
+
+```sh
+JETKVM_TEST_PTY_EVIDENCE="$PWD/.cache/ui-evidence" \
+  go test ./internal/cli -run '^TestTerminalPTY$' -count=1
+```
+
+The `.ansi` files contain original PTY bytes; `.txt` and `.svg` are readable
+projections of those same bytes. Update, setup, input and screenshot receipts
+are deterministic fixtures, not evidence of a live device action or install.
+Confirmation streams are retained without a static SVG because they include
+cursor updates. The evidence directory is small and contains no Go build cache.
+
 Run from the repository root:
 
 ```sh

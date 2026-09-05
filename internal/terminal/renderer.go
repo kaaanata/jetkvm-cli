@@ -19,15 +19,17 @@ import (
 // Theme keeps results, help, errors and forms visually consistent. ANSI colors
 // adapt to the user's terminal palette; meaning never depends on color alone.
 type Theme struct {
-	Title, Label, Muted, Error lipgloss.Style
+	Title, Label, Muted, Error, Success, Warning lipgloss.Style
 }
 
 func NewTheme() Theme {
 	return Theme{
-		Title: lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("6")),
-		Label: lipgloss.NewStyle().Bold(true),
-		Muted: lipgloss.NewStyle().Foreground(lipgloss.Color("8")),
-		Error: lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("1")),
+		Title:   lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("6")),
+		Label:   lipgloss.NewStyle().Bold(true),
+		Muted:   lipgloss.NewStyle().Foreground(lipgloss.Color("8")),
+		Error:   lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("1")),
+		Success: lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("2")),
+		Warning: lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("3")),
 	}
 }
 
@@ -43,6 +45,8 @@ type Document struct {
 	Title    string
 	Sections []Section
 	Failure  bool
+	// Tone describes a proven outcome, never infers one from a command name.
+	Tone string
 }
 
 type Renderer struct {
@@ -89,6 +93,12 @@ func Clean(s string) string {
 func (r Renderer) Render(d Document) string {
 	width := max(1, r.Width)
 	style := r.Theme.Title
+	switch d.Tone {
+	case "success":
+		style = r.Theme.Success
+	case "attention":
+		style = r.Theme.Warning
+	}
 	if d.Failure {
 		style = r.Theme.Error
 	}
@@ -99,7 +109,7 @@ func (r Renderer) Render(d Document) string {
 	for _, section := range d.Sections {
 		var parts []string
 		if section.Title != "" {
-			parts = append(parts, r.Theme.Label.Width(width).Render(Clean(section.Title)))
+			parts = append(parts, r.Theme.Title.Width(width).Render(Clean(section.Title)))
 		}
 		if section.Text != "" {
 			parts = append(parts, lipgloss.NewStyle().Width(width).Render(Clean(section.Text)))
@@ -112,7 +122,9 @@ func (r Renderer) Render(d Document) string {
 				}
 			}
 			// Stack narrow tables without truncating identifiers or instructions.
-			if width < 60 {
+			if len(section.Headers) == 0 {
+				parts = append(parts, r.renderPairs(rows, width))
+			} else if width < 60 {
 				for i, row := range rows {
 					if i > 0 {
 						parts = append(parts, "")
@@ -174,6 +186,35 @@ func (r Renderer) Render(d Document) string {
 		lines[i] = strings.TrimRight(line, " ")
 	}
 	return strings.Join(lines, "\n") + "\n"
+}
+
+// Headerless label/value rows keep help and receipts compact at phone-sized
+// widths. Real data tables retain headers and their stacked narrow layout.
+func (r Renderer) renderPairs(rows [][]string, width int) string {
+	labelWidth := 0
+	for _, row := range rows {
+		if len(row) > 0 {
+			labelWidth = max(labelWidth, lipgloss.Width(row[0]))
+		}
+	}
+	var lines []string
+	for _, row := range rows {
+		if len(row) == 0 {
+			continue
+		}
+		value := strings.Join(row[1:], " · ")
+		if labelWidth+2 > width/2 {
+			lines = append(lines, r.Theme.Label.Width(width).Render(row[0]))
+			if value != "" {
+				lines = append(lines, r.Theme.Muted.Width(max(1, width-2)).MarginLeft(min(2, width-1)).Render(value))
+			}
+			continue
+		}
+		label := r.Theme.Label.Width(labelWidth).Render(row[0])
+		detail := r.Theme.Muted.Width(width - labelWidth - 2).Render(value)
+		lines = append(lines, lipgloss.JoinHorizontal(lipgloss.Top, label, "  ", detail))
+	}
+	return strings.Join(lines, "\n")
 }
 
 func (r Renderer) Write(d Document) error {
