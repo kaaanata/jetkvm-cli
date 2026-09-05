@@ -2,10 +2,13 @@ package video
 
 import (
 	"bytes"
+	"crypto/md5"
 	"encoding/binary"
+	"fmt"
 	"os"
 	"runtime"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 )
@@ -47,6 +50,33 @@ func TestContinuousDecoderReplayPerformance(t *testing.T) {
 	}
 	d, _ := EmbeddedDecoder().New()
 	t.Cleanup(func() { _ = d.Close() })
+	var expected []string
+	if path := os.Getenv("JETKVM_VIDEO_REFERENCE_MD5"); path != "" {
+		data, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for line := range strings.SplitSeq(string(data), "\n") {
+			if line == "" || strings.HasPrefix(line, "#") {
+				continue
+			}
+			fields := strings.Split(line, ",")
+			expected = append(expected, strings.TrimSpace(fields[len(fields)-1]))
+		}
+	}
+	verify := func(f DecodedFrame, index int) {
+		if expected == nil {
+			return
+		}
+		im := f.Image.(*streamImage)
+		h := md5.New()
+		for _, plane := range im.planes {
+			_, _ = h.Write(plane)
+		}
+		if index >= len(expected) || fmt.Sprintf("%x", h.Sum(nil)) != expected[index] {
+			t.Fatalf("reference mismatch at frame %d", index)
+		}
+	}
 	var before, after runtime.MemStats
 	runtime.ReadMemStats(&before)
 	start := time.Now()
@@ -64,6 +94,7 @@ func TestContinuousDecoderReplayPerformance(t *testing.T) {
 			t.Fatal(err)
 		}
 		if !f.Pending {
+			verify(f, count)
 			count++
 			if first == 0 {
 				first = time.Since(start)
@@ -78,6 +109,7 @@ func TestContinuousDecoderReplayPerformance(t *testing.T) {
 		if f.Pending {
 			break
 		}
+		verify(f, count)
 		count++
 	}
 	elapsed := time.Since(start)

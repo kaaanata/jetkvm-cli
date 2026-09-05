@@ -167,3 +167,10 @@ Synthetic P/B, packet loss, queue overload and geometry tests supplement this
 single-device coverage; they do not prove physical multi-device or HDMI cable
 transition behavior. Detailed decoder selection and CPU/memory replay results
 are in `internal/video/DECODER_DECISION.md`.
+
+A subsequent 20-second read-only real-stream run measured 60.8 fps input,
+95.35 ms P95 source age and 8.55 ms P95 decode time, with no observed sequence
+gaps or assembly errors. CPU averaged about 36% of one core over the entire
+26.88-second process, including startup, and peak RSS was about 143 MiB.
+All 1,219 recorded frames matched native FFmpeg planar-frame hashes on replay.
+No HID was sent during this recording, and the capture was not committed.

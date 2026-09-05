@@ -123,3 +123,20 @@ Two consecutive production-script builds produced identical SHA-256
 `22395f517ccd2af6d76167807f12c265ba91009917440bacf5b6e4fc9f59100c`.
 The Grype 0.118.0 C-package SBOM scan reported zero matches against its
 2026-09-05 database. Root govulncheck reported no reachable vulnerabilities.
+
+The actual hardware stream was then received continuously for 20 seconds after
+first observation. It fed the decoder at 60.8 fps, with 8.55 ms P95 decode time,
+95.35 ms P95 source age, and 361.8 ms maximum source age including startup.
+There were zero observed RTP sequence gaps and zero assembly errors among 4,207
+packets. The standalone test process used 9.41 s user CPU and 0.30 s system CPU
+over 26.88 s wall time (about 36% of one core), with peak RSS 150,224,896 bytes
+(about 143 MiB). It sent only RTCP PLI, with no HID or host application changes.
+
+The 1,219 recorded AUs contained 41 I pictures and 1,178 P pictures. Replaying
+that private stream through the production WASI decoder and comparing every
+planar-frame MD5 with native FFmpeg passed all 1,219 frames, including final
+drain. Replay took 12.98 s (93.9 fps including hash checks). The raw stream,
+reference hashes and image content remain private; only aggregate timings and
+counts are public. `JETKVM_HIL_CONTINUOUS=1` extends the existing startup test;
+`JETKVM_HIL_RECORD` writes a new private record file without overwriting one.
+`JETKVM_VIDEO_REFERENCE_MD5` adds independent per-frame replay verification.
