@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"time"
+	"uuid"
 
 	"github.com/kaaanata/jetkvm-cli/internal/automation"
 	"github.com/kaaanata/jetkvm-cli/internal/control"
@@ -21,14 +22,15 @@ type Observer interface {
 }
 
 type screenshotResult struct {
-	ImageBase64 string            `json:"image_base64,omitempty"`
-	Observation video.Observation `json:"observation"`
-	MIMEType    string            `json:"mime_type"`
-	File        string            `json:"file,omitempty"`
+	Wake        *automation.WakeReceipt `json:"wake,omitempty"`
+	ImageBase64 string                  `json:"image_base64,omitempty"`
+	Observation video.Observation       `json:"observation"`
+	MIMEType    string                  `json:"mime_type"`
+	File        string                  `json:"file,omitempty"`
 }
 
 func screenResult(screen automation.ScreenObservation, file string) (*screenshotResult, error) {
-	result := &screenshotResult{Observation: screen.Observation, MIMEType: screen.MIMEType}
+	result := &screenshotResult{Observation: screen.Observation, MIMEType: screen.MIMEType, Wake: screen.Wake}
 	if file != "" {
 		if err := os.WriteFile(file, screen.Data, 0600); err != nil {
 			return result, err
@@ -41,6 +43,7 @@ func screenResult(screen automation.ScreenObservation, file string) (*screenshot
 func (a *App) newScreenshotCommand() *cobra.Command {
 	var file string
 	var freshness time.Duration
+	var disableWake bool
 	command := &cobra.Command{
 		Use: "screenshot <device>", Aliases: []string{"observe"}, Short: "Capture a PNG screenshot using a temporary control", Args: exactArgs(1),
 		RunE: func(command *cobra.Command, args []string) error {
@@ -58,24 +61,37 @@ func (a *App) newScreenshotCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			return a.withEphemeralControl(command.Context(), deviceID, []string{"video"}, func(ctx context.Context, ref control.Ref) error {
+			capabilities := []string{"video"}
+			if planner, ok := a.deps.Automation.(interface {
+				CanWake(domain.DeviceID, policy.Scope) bool
+			}); ok && !disableWake && planner.CanWake(deviceID, policy.Scope{}) {
+				capabilities = append(capabilities, "input")
+			}
+			return a.withEphemeralControl(command.Context(), deviceID, capabilities, func(ctx context.Context, ref control.Ref) error {
 				progress.Stage(ctx, "Waiting for a fresh screen")
 				screen, err := observer.Observe(ctx, automation.ObserveRequest{
 					ControlRequest: automation.ControlRequest{DeviceID: deviceID, Ref: ref, Scope: policy.Scope{}},
-					Freshness:      freshness,
+					Freshness:      freshness, DisableWake: disableWake, WakeOperationID: uuid.NewV7(),
 				})
 				if err != nil {
+					if screen.Wake != nil {
+						return errors.Join(a.writeResult("screenshot", &screenshotResult{Wake: screen.Wake}), err)
+					}
 					return err
 				}
 				progress.Stage(ctx, "Saving screenshot")
 				result, err := screenResult(screen, file)
 				if err != nil {
+					if screen.Wake != nil {
+						return errors.Join(a.writeResult("screenshot", result), err)
+					}
 					return err
 				}
 				return a.writeResult("screenshot", result)
 			})
 		},
 	}
+	command.Flags().BoolVar(&disableWake, "no-wake", false, "disable automatic waking for sleeping/no-signal video")
 	command.Flags().StringVar(&file, "file", "", "explicit path for the PNG screenshot")
 	command.Flags().DurationVar(&freshness, "freshness", 0, "maximum observation age; zero uses the service default")
 	return command

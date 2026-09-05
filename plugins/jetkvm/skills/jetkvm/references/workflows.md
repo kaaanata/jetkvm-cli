@@ -37,7 +37,7 @@ jetkvm input run lab --actions-json '[{"type":"keypress","keys":["ESC"]},{"type"
   --observe-after --file after-batch.png --output=json
 ```
 
-`observe` aliases `screenshot`; both require `--file` and open only video capability. Each coordinate command opens its own input/video control, captures the binding there, executes, and closes. A prior PNG is a visual reference, never authorization or a binding transferable to a new process. Automatic capture does not identify UI elements or prove that a target stayed in place. Use the persistent MCP loop when a decision depends on the exact bound image.
+`observe` aliases `screenshot`; both require `--file` and include input capability for automatic waking only when existing policy permits it. Use `--no-wake` for a strictly video-only session. Each coordinate command opens its own input/video control, captures the binding there, executes, and closes. A prior PNG is a visual reference, never authorization or a binding transferable to a new process. Automatic capture does not identify UI elements or prove that a target stayed in place. Use the persistent MCP loop when a decision depends on the exact bound image.
 
 For input, `--file` implies post-action capture. `--observe-after` requires `--file` or explicit `--image-base64`; only the latter embeds PNG base64 in JSON. Choose file paths deliberately because existing contents are replaced. Capture or file-write failure after input is not permission to repeat the action. Preserve the operation receipt and report which input and capture steps succeeded.
 

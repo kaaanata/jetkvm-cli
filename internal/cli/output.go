@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 
+	"github.com/kaaanata/jetkvm-cli/internal/automation"
 	"github.com/kaaanata/jetkvm-cli/internal/config"
 	"github.com/kaaanata/jetkvm-cli/internal/control"
 	"github.com/kaaanata/jetkvm-cli/internal/domain"
@@ -173,6 +174,10 @@ func classifyFailure(err error) failureDetail {
 		detail.Kind, detail.ExitCode = "device_identity_mismatch", ExitNotFound
 	case errors.Is(err, domain.ErrCapabilityUnavailable), errors.Is(err, video.ErrDecoderUnavailable):
 		detail.Kind, detail.ExitCode = "capability_unavailable", ExitUnsupported
+	case errors.Is(err, automation.ErrVideoSleeping):
+		detail.Kind, detail.ExitCode = "video_sleeping", ExitUnavailable
+	case errors.Is(err, automation.ErrVideoNoSignal):
+		detail.Kind, detail.ExitCode = "video_no_signal", ExitUnavailable
 	case errors.Is(err, video.ErrFrameStale), errors.Is(err, input.ErrObservationStale):
 		detail.Kind, detail.ExitCode = "observation_stale", ExitConflict
 	case errors.Is(err, video.ErrVideoUnavailable), errors.Is(err, video.ErrPipelineClosed), errors.Is(err, video.ErrDecodeFailed), errors.Is(err, video.ErrDimensionsExceeded):

@@ -10,6 +10,7 @@ import (
 	"github.com/kaaanata/jetkvm-cli/internal/control"
 	"github.com/kaaanata/jetkvm-cli/internal/domain"
 	"github.com/kaaanata/jetkvm-cli/internal/operation"
+	"github.com/kaaanata/jetkvm-cli/internal/policy"
 )
 
 type sessionPolicy struct {
@@ -110,4 +111,8 @@ func (s *AutomationService) PreparePowerAction(request automation.PowerActionReq
 
 func (s *AutomationService) Drain(ctx context.Context) error {
 	return s.next.Drain(ctx)
+}
+
+func (s *AutomationService) CanWake(deviceID domain.DeviceID, scope policy.Scope) bool {
+	return s.next.CanWake(deviceID, scope)
 }

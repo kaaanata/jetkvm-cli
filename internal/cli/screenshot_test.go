@@ -15,6 +15,8 @@ import (
 
 	"github.com/kaaanata/jetkvm-cli/internal/automation"
 	"github.com/kaaanata/jetkvm-cli/internal/control"
+	"github.com/kaaanata/jetkvm-cli/internal/domain"
+	"github.com/kaaanata/jetkvm-cli/internal/policy"
 	"github.com/kaaanata/jetkvm-cli/internal/video"
 )
 
@@ -82,8 +84,8 @@ func TestScreenshotFileAndAlias(t *testing.T) {
 			if service.observed.Ref != service.closed.Ref || service.closed.Ref.ID != "ctl_test" {
 				t.Fatal("capture and cleanup use different controls")
 			}
-			if !slices.Equal(service.open.Capabilities, []string{"video"}) {
-				t.Fatalf("read-only screenshot requested capabilities %v", service.open.Capabilities)
+			if !slices.Equal(service.open.Capabilities, []string{"video", "input"}) {
+				t.Fatalf("default screenshot requested capabilities %v", service.open.Capabilities)
 			}
 			if strings.Contains(stdout.String(), base64.StdEncoding.EncodeToString(service.screen.Data)) || !strings.Contains(stdout.String(), "obs-owned") {
 				t.Fatalf("output=%s", stdout)
@@ -146,5 +148,19 @@ func TestPostActionBase64RequiresExplicitFlag(t *testing.T) {
 	_, _, app = newControlTestApp(t, false, service, nil)
 	if code := app.Execute(t.Context(), []string{"input", "key", "lab", "A", "--observe-after"}); code == ExitOK || service.open.DeviceID != "" {
 		t.Fatal("missing screenshot destination was not rejected before opening control")
+	}
+}
+
+func (f *observingAutomation) CanWake(domain.DeviceID, policy.Scope) bool { return true }
+
+func TestScreenshotNoWakeKeepsVideoOnly(t *testing.T) {
+	service := newObservingAutomation(t)
+	_, stderr, app := newControlTestApp(t, false, service, nil)
+	file := filepath.Join(t.TempDir(), "screen.png")
+	if code := app.Execute(t.Context(), []string{"screenshot", "lab", "--no-wake", "--file", file}); code != ExitOK {
+		t.Fatal(stderr.String())
+	}
+	if !service.observed.DisableWake || !slices.Equal(service.open.Capabilities, []string{"video"}) {
+		t.Fatal("no-wake did not preserve video-only capture")
 	}
 }

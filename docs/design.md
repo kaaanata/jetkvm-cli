@@ -426,7 +426,7 @@ Stdout contains one result document and no progress, prompts, or logs. JSON fiel
 
 Commands call the automation service rather than JetKVM transports directly. Setup and update follow the same machine-readable receipt model.
 
-`jetkvm screenshot <device> --file screen.png` (alias `observe`) opens a command-scoped control with only `video` capability, captures a PNG, writes the explicit path, and closes the control. It does not require input permission. Opening the video session still follows takeover policy.
+`jetkvm screenshot <device> --file screen.png` (alias `observe`) opens a command-scoped video control, captures a PNG, writes the explicit path, and closes the control. When existing input policy permits it, the command also requests input capability for automatic waking. `--no-wake` keeps the handle video-only. Input permission is not required for a ready screen. Opening the video session still follows takeover policy.
 
 `jetkvm input move|click|double-click|drag` opens `input` + `video` and obtains its coordinate binding on that same control. Scroll and keyboard commands need only `input` unless capture is requested. `--file after.png` implies post-action observation; `--observe-after` requires `--file` or explicit `--image-base64`. JSON reports observation metadata and the saved path, with image bytes omitted unless base64 is explicitly requested. File writes replace the specified path. A file-write or capture failure after input must not cause automatic input replay. See the [README examples](../README.md#screenshots-and-input) for concrete commands.
 
@@ -588,3 +588,13 @@ No single green health check is presented as proof of end-to-end physical contro
 13. Setup and uninstall mutate only resources with proven ownership.
 14. Plugins invoke the installed binary and never carry a hidden second copy.
 15. Unsupported multimodal capability remains absent rather than simulated.
+
+## Video readiness and automatic waking
+
+Observation reads firmware `getVideoSleepMode` and `getVideoState` before waiting for a frame. `video_sleeping` identifies confirmed capture sleep; `video_no_signal` identifies missing HDMI signal, which can mean a sleeping, powered-off, or disconnected host. Unknown/unsupported diagnostic RPCs do not authorize a wake. Decode failures and stale frames retain their separate errors.
+
+Automatic waking is the default for an input-capable handle under the existing compiled input policy. CLI screenshots select that capability through the same policy authority; MCP agents should open video plus input when already authorized. `--no-wake` and MCP `disable_wake: true` opt out. No video-only handle sends HID, no setting is widened, and session takeover confirmation remains in force.
+
+After confirmed sleep/no-signal, the service sends at most one Shift press/release through the ordinary input actor, lease, operation ledger, and neutralization path. It then polls read-only readiness within a bounded deadline and captures a fresh post-input frame. It never retries an ambiguous wake or adds wake actions after arbitrary transport/decoder failure. An optional MCP `wake_operation_id` deduplicates the wake; omitted IDs are server-issued and returned. Wake receipts are returned under `wake`, including on partial failure, with delivery, stage, retry safety, and any available cleanup evidence. A failed post-wake capture is not evidence that the input was unsent.
+
+The observation tools therefore advertise possible input effects, although ready-screen and video-only calls remain read-only. Existing discovery permission remains video-scoped; execution checks the input policy and exact handle separately before waking.

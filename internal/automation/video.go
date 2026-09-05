@@ -6,13 +6,17 @@ import (
 	"errors"
 	"image/png"
 	"net"
+	"slices"
 	"strings"
 	"time"
+	"uuid"
 
 	"github.com/kaaanata/jetkvm-cli/internal/control"
 	"github.com/kaaanata/jetkvm-cli/internal/domain"
 	"github.com/kaaanata/jetkvm-cli/internal/input"
 	"github.com/kaaanata/jetkvm-cli/internal/jetkvm"
+	"github.com/kaaanata/jetkvm-cli/internal/operation"
+	"github.com/kaaanata/jetkvm-cli/internal/policy"
 	"github.com/kaaanata/jetkvm-cli/internal/progress"
 	"github.com/kaaanata/jetkvm-cli/internal/video"
 )
@@ -35,7 +39,46 @@ func (s *Service) Observe(ctx context.Context, request ObserveRequest) (ScreenOb
 		result, err = observer.Observe(ctx, request.Freshness)
 		return err
 	})
-	return result, err
+	if request.DisableWake || (!errors.Is(err, ErrVideoSleeping) && !errors.Is(err, ErrVideoNoSignal)) {
+		return result, err
+	}
+	// Existing input permission authorizes one bounded wake attempt. The shared input
+	// service owns policy, actor serialization, delivery and neutralization.
+	snapshot, getErr := s.registry.Get(ctx, request.DeviceID, request.Ref)
+	if getErr != nil {
+		return result, getErr
+	}
+	if !s.CanWake(request.DeviceID, request.Scope) || snapshot.Handle == nil || !slices.Contains(snapshot.Handle.Capabilities, "input") {
+		return result, err
+	}
+	if request.WakeOperationID == uuid.Nil() {
+		request.WakeOperationID = uuid.NewV7()
+	}
+	wake, wakeErr := s.RunActions(ctx, RunActionsRequest{DeviceID: request.DeviceID, Ref: request.Ref, Scope: request.Scope, OperationID: request.WakeOperationID,
+		Batch: input.Batch{Actions: []input.Action{{Type: input.ActionKeypress, Keys: []string{"SHIFT"}}}}})
+	receipt := &WakeReceipt{OperationID: request.WakeOperationID.String(), Stage: wake.Operation.Stage, Delivery: wake.Operation.Delivery, RetrySafe: wake.Operation.RetrySafe, Batch: wake.Batch}
+	if wakeErr != nil || wake.Operation.Stage != operation.StageCompleted {
+		return ScreenObservation{Wake: receipt}, errors.Join(err, wakeErr)
+	}
+	// Poll only read-only readiness. Never replay the wake after an uncertain
+	// result, and never reuse an observation from before input completion.
+	observeCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	defer cancel()
+	request.DisableWake = true
+	for {
+		result, err = s.Observe(observeCtx, request)
+		result.Wake = receipt
+		if !errors.Is(err, ErrVideoSleeping) && !errors.Is(err, ErrVideoNoSignal) {
+			return result, err
+		}
+		timer := time.NewTimer(250 * time.Millisecond)
+		select {
+		case <-observeCtx.Done():
+			timer.Stop()
+			return result, errors.Join(err, context.Cause(observeCtx))
+		case <-timer.C:
+		}
+	}
 }
 
 func (s *sessionAdapter) startVideo(session *jetkvm.Session) error {
@@ -114,6 +157,9 @@ func (s *sessionAdapter) Observe(ctx context.Context, freshness time.Duration) (
 	if s.video == nil {
 		return ScreenObservation{}, domain.ErrCapabilityUnavailable
 	}
+	if err := s.videoReadiness(ctx); err != nil {
+		return ScreenObservation{}, err
+	}
 	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
 	progress.Stage(ctx, "Waiting for a fresh decoded screen")
@@ -189,4 +235,10 @@ func (s *sessionAdapter) resolveObservation(binding *input.ObservationBinding) (
 		}
 	}
 	return nil, input.ErrObservationStale
+}
+
+// CanWake evaluates the shared policy without opening a session or sending input.
+func (s *Service) CanWake(deviceID domain.DeviceID, scope policy.Scope) bool {
+	_, err := s.authorize("jetkvm_run_actions", deviceID, scope, nil, false)
+	return err == nil
 }

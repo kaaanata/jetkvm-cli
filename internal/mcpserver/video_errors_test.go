@@ -29,6 +29,8 @@ func TestVideoErrorsSurviveMCPWithoutPrivateDetails(t *testing.T) {
 		source, public error
 		kind           string
 	}{
+		{automation.ErrVideoSleeping, automation.ErrVideoSleeping, "video_sleeping"},
+		{automation.ErrVideoNoSignal, automation.ErrVideoNoSignal, "video_no_signal"},
 		{input.ErrUnknownKey, input.ErrUnknownKey, "invalid_argument"},
 		{input.ErrUnsupportedText, input.ErrUnsupportedText, "invalid_argument"},
 		{input.ErrNeutralization, input.ErrNeutralization, "unavailable"},

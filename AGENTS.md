@@ -1,5 +1,7 @@
 # Project Notes
 
+- Screen observation automatically attempts one ledger-owned Shift press/release when firmware reports capture sleep or no HDMI signal and both input policy and handle capability allow it. No signal is not proof of host sleep. CLI screenshots prepare input capability only when policy allows; `--no-wake` / MCP `disable_wake` opt out. Video-only handles never send HID. Preserve wake receipts on capture failure, never retry ambiguous wake delivery, and poll only read-only readiness after waking.
+
 - Preserve release-please's generated PR-body preamble, delimiters, and footer when refining release notes. They are machine-readable release metadata; removing them can prevent tagging and produce an incorrect follow-up PR.
 
 - Canonical operation/confirmation digests encode time.Duration as exact integer nanoseconds through the JSON v2 marshaler; do not rely on its undefined default duration format. Reject overflowing MCP millisecond inputs before conversion.

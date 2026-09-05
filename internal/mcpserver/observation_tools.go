@@ -20,7 +20,9 @@ type Observer interface {
 
 type observeInput struct {
 	controlRefInput
-	FreshnessMS int64 `json:"freshness_ms,omitzero"`
+	DisableWake     bool   `json:"disable_wake,omitzero" jsonschema:"Disable automatic one-shot waking. By default, a video+input handle may wake sleeping/no-signal video once under existing input policy."`
+	WakeOperationID string `json:"wake_operation_id,omitempty" jsonschema:"UUID for deduplication of the optional wake operation."`
+	FreshnessMS     int64  `json:"freshness_ms,omitzero"`
 }
 
 func (s *Server) registerObservationTools(server *mcp.Server) {
@@ -29,7 +31,7 @@ func (s *Server) registerObservationTools(server *mcp.Server) {
 	}
 	for _, name := range []string{toolObserve, toolCaptureScreen} {
 		if s.toolAllowed(name) {
-			mcp.AddTool(server, readOnlyTool(name, "Observe JetKVM screen", "Captures a PNG and server-owned coordinate binding from an existing video control handle."), s.observe)
+			mcp.AddTool(server, stateChangingTool(name, "Observe JetKVM screen", "Captures a PNG from an existing video handle. Automatically attempts one Shift wake for sleeping/no-signal video when the handle and policy permit input; disable_wake opts out.", false), s.observe)
 		}
 	}
 }
@@ -49,11 +51,23 @@ func (s *Server) observe(ctx context.Context, _ *mcp.CallToolRequest, in observe
 	if !ok || !s.decoder {
 		return nil, automation.ScreenObservation{}, domain.ErrCapabilityUnavailable
 	}
-	screen, err := observer.Observe(ctx, automation.ObserveRequest{
+	request := automation.ObserveRequest{
 		ControlRequest: automation.ControlRequest{DeviceID: in.DeviceID, Ref: controlRef(in.controlRefInput), Scope: s.scope},
 		Freshness:      time.Duration(in.FreshnessMS) * time.Millisecond,
-	})
+		DisableWake:    in.DisableWake,
+	}
+	if in.WakeOperationID != "" {
+		id, err := parseOperationID(in.WakeOperationID)
+		if err != nil {
+			return nil, automation.ScreenObservation{}, err
+		}
+		request.WakeOperationID = id
+	}
+	screen, err := observer.Observe(ctx, request)
 	if err != nil {
+		if screen.Wake != nil {
+			return &mcp.CallToolResult{IsError: true, StructuredContent: screen, Content: []mcp.Content{&mcp.TextContent{Text: publicAutomationError(err).Error()}}}, screen, nil
+		}
 		return nil, automation.ScreenObservation{}, publicAutomationError(err)
 	}
 	return &mcp.CallToolResult{Content: []mcp.Content{screenImage(screen)}, StructuredContent: screen}, screen, nil

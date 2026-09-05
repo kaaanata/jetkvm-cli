@@ -46,11 +46,22 @@ type RunActionsResult struct {
 
 type ObserveRequest struct {
 	ControlRequest
-	Freshness time.Duration
+	Freshness       time.Duration
+	DisableWake     bool
+	WakeOperationID uuid.UUID
 }
 
 // ScreenObservation contains server-owned binding metadata and PNG bytes.
+type WakeReceipt struct {
+	OperationID string             `json:"operation_id"`
+	Stage       operation.Stage    `json:"stage"`
+	Delivery    operation.Delivery `json:"delivery"`
+	RetrySafe   bool               `json:"retry_safe"`
+	Batch       input.BatchReceipt `json:"batch,omitzero"`
+}
+
 type ScreenObservation struct {
+	Wake        *WakeReceipt      `json:"wake,omitempty"`
 	Observation video.Observation `json:"observation"`
 	MIMEType    string            `json:"mime_type"`
 	Data        []byte            `json:"-"`

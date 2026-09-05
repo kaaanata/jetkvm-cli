@@ -521,6 +521,10 @@ func receiptView(receipt operation.Receipt) operationReceiptOutput {
 
 func publicAutomationError(err error) error {
 	switch {
+	case errors.Is(err, automation.ErrVideoSleeping):
+		return fmt.Errorf("video_sleeping: %w", automation.ErrVideoSleeping)
+	case errors.Is(err, automation.ErrVideoNoSignal):
+		return fmt.Errorf("video_no_signal: %w", automation.ErrVideoNoSignal)
 	case errors.Is(err, input.ErrUnknownKey):
 		return fmt.Errorf("invalid_argument: %w", input.ErrUnknownKey)
 	case errors.Is(err, input.ErrUnsupportedText):

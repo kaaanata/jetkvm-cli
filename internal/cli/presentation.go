@@ -107,7 +107,18 @@ func resultDocument(command string, data any) (terminal.Document, error) {
 		if v.File != "" {
 			d.Title = "Screenshot saved"
 		}
-		d.Sections = append(d.Sections, screenshotSection(*v))
+		if v.Wake != nil {
+			if v.Observation.ID == "" {
+				d.Title = "Wake attempted; screen unavailable"
+			}
+			d.Sections = append(d.Sections, fields("Wake", row("operation", v.Wake.OperationID), row("stage", v.Wake.Stage), row("delivery", v.Wake.Delivery), row("retry safe", v.Wake.RetrySafe)))
+			if v.Wake.Batch.Status != "" {
+				d.Sections = append(d.Sections, fields("Input cleanup", row("neutralized", v.Wake.Batch.Neutralized), row("cleanup failure", v.Wake.Batch.CleanupFailure)))
+			}
+		}
+		if v.Observation.ID != "" {
+			d.Sections = append(d.Sections, screenshotSection(*v))
+		}
 	case []setupcore.Plan:
 		d.Title = "Agent setup plan"
 		for _, plan := range v {
