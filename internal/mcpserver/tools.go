@@ -50,6 +50,7 @@ type getCapabilitiesOutput struct {
 }
 
 func (s *Server) registerTools(server *mcp.Server) {
+	s.registerSetupTools(server)
 	if s.toolAllowed(toolListDevices) {
 		mcp.AddTool(server, readOnlyTool(
 			toolListDevices,

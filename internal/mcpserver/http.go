@@ -29,6 +29,12 @@ type HTTPConfig struct {
 // NewStatelessHTTPServer constructs a loopback-only HTTP server. The returned
 // server is not started; callers retain shutdown and listener ownership.
 func (s *Server) NewStatelessHTTPServer(config HTTPConfig) (*http.Server, error) {
+	return NewHTTPServer(s.newProtocolServer(), config)
+}
+
+// NewHTTPServer retains one protocol endpoint across stateless requests so
+// configuration activation and tools/list_changed have a single authority.
+func NewHTTPServer(protocol *mcp.Server, config HTTPConfig) (*http.Server, error) {
 	if err := validateLoopbackListenAddress(config.ListenAddress); err != nil {
 		return nil, err
 	}
@@ -53,7 +59,7 @@ func (s *Server) NewStatelessHTTPServer(config HTTPConfig) (*http.Server, error)
 	}
 
 	streamable := mcp.NewStreamableHTTPHandler(
-		func(*http.Request) *mcp.Server { return s.newProtocolServer() },
+		func(*http.Request) *mcp.Server { return protocol },
 		&mcp.StreamableHTTPOptions{
 			Stateless:                    true,
 			JSONResponse:                 true,

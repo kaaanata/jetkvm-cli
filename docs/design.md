@@ -201,6 +201,10 @@ The actor owns session creation, replacement, teardown, input lease, neutralizat
 
 CLI control operations are command-scoped: open, execute, neutralize, and close happen within one process. A CLI must not print a handle intended for a later process because runtime shutdown invalidates it. MCP uses explicit handles across calls because the server process remains alive.
 
+`app.MCPHost` owns the MCP bootstrap-to-ready transition and later configuration activation. A missing file starts only enrollment, its status receipt, and an empty device list; malformed, unreadable, or invalid configuration never becomes a writable bootstrap. One protocol server is retained for stdio or across stateless HTTP requests. An immutable runtime is published behind a read/write dispatch gate, and tool/resource handlers are replaced with list-change notifications only while that gate excludes calls. Ordinary calls retain shared read access, so independent devices remain concurrent.
+
+Configuration and its SHA-256 revision come from the same file read. MCP compares that revision before dispatch, including after an external CLI settings write. Activation joins in-flight calls and queries actor-owned quiescence; active controls are never forcibly drained to apply settings. Pending changes fence new effects while close-control and receipt reads remain available. After controls close, the next request activates the saved revision without restarting MCP. No filesystem watcher or second configuration authority is introduced.
+
 ## 8. Policy and capabilities
 
 Effective permission is an intersection:
@@ -233,6 +237,10 @@ The MCP server uses closed input and output schemas and structured content. Curr
 
 | Tool | Effect | Purpose |
 |---|---|---|
+| `jetkvm_setup` | admin | Create a bounded local enrollment flow; human supplies trust, permissions, and any password |
+| `jetkvm_setup_status` | read | Read retained enrollment/settings progress and committed revision |
+| `jetkvm_get_config` | read | Read credential-free supported settings and their exact revision |
+| `jetkvm_update_config` | admin | Propose revision-bound settings changes for local human review and activation |
 | `jetkvm_list_devices` | read | List explicitly exposed devices without contacting them |
 | `jetkvm_get_status` | read | Read HTTP-only, source-attributed basic status |
 | `jetkvm_get_capabilities` | read | Return compiled/configured/firmware/runtime capability state |
@@ -356,6 +364,46 @@ Cobra is the command-tree and parsing authority. Charmbracelet Log is used for h
 
 Human presentation uses one `internal/terminal` theme and renderer with Lip Gloss v2 tables and layouts. The CLI maps typed status, capabilities, doctor reports, input/power/control receipts, screenshots, setup plans/receipts and update plans/receipts into semantic documents. Help and usage read the live Cobra command and flag metadata. Errors retain the stable error kind; input results retain delivery, verification, terminal claims, retry safety and neutralization without claiming physical success. Fang was reviewed as a layout reference and is not a dependency.
 
+Human documents lead with the recorded outcome and use a cyan accent, semantic success/attention colors, and muted supporting fields. Root help groups available Cobra commands into Inspect, Control, Integrate and Maintain, with a fallback for new commands and concrete getting-started examples. Help and key/value fields have no redundant column headings and wrap responsively. A no-op update is one sentence; an applied update, rollback and installer-required action remain distinct. Artifact verification and rollback availability are shown only from the receipt, and rollback does not imply a new signature check. These projections do not change machine serialization or operation authority.
+
+Maintenance intent is explicit: `update` and `update rollback` execute without a
+second confirmation. Existing `--yes` options remain hidden compatibility no-ops.
+`--check`, `--dry-run`, installation ownership, trust verification, and explicit
+downgrade restrictions remain unchanged. Device takeover, risky input/power and
+integration approval policies are independent of this maintenance UX decision.
+
+Context-scoped progress observations report real work stages and download bytes.
+The inline terminal activity uses the existing Bubbles spinner and progress bar,
+shows elapsed time and measured average transfer speed, and reports prolonged
+absence of progress without retrying work or changing deadlines. Unknown totals
+show received bytes, never an invented percentage. Download completion is not
+installation completion: signature verification, extraction, activation, self-check
+and receipt commit are separate stages. Frame waits, decoding, encoding, saving,
+control cleanup and integration steps report their own observed stages.
+
+The activity is output-only and never consumes stdin. The executable's signal
+context remains the cancellation owner. The renderer is paused and joined before
+forms, and finally joined after business/runtime cleanup. Logger messages are
+serialized through the activity; stderr ownership and terminal dimensions survive
+the output adapter. Two unconditional Bubble Tea 2.0.9 capability queries are
+suppressed at this output-only boundary to prevent unconsumed replies leaking into
+the next prompt; other rendering sequences remain unchanged. JSON/MCP/completion
+streams never receive this UI. Explicit non-TTY text, no-color, dumb-terminal and
+accessibility modes receive only stage lines.
+
+CLI result documents are buffered until command-scoped control and runtime cleanup
+complete. A cleanup or operation failure retains available results, labels the
+human view as partial, and reports the error separately; JSON receipt schemas are
+unchanged. Accepted input effects are not erased by a failed post-action capture or
+cleanup. Normal human output hides diagnostic IDs/timestamps unless `--verbose` is
+requested, but keeps delivery, verification, retry safety and neutralization. Partial
+outcomes retain full details. Error guidance names safe next steps without promising
+that cancellation undoes delivered work or encouraging automatic write retries.
+CLI cancellation is classified as `canceled` (exit 5, not automatically retryable).
+Update activation failures retain `update_apply_failed` (exit 5), and failed rollback
+retains `rollback_failed` (exit 8); a wrapped cancellation must not hide that uncertain
+installation state. These classifications do not add fields to the JSON envelope.
+
 The renderer measures the destination terminal width, wraps Unicode by display width and stacks narrow tables without truncating values. It does not require emoji or color to convey meaning. Display text is stripped of injected terminal commands. Non-TTY text, a nonempty `NO_COLOR`, `TERM=dumb`, or `JETKVM_ACCESSIBLE=1` produce no control sequences, including when forced-color environment variables are present. `JETKVM_ACCESSIBLE=1` selects linear screen-reader-friendly prompts. Terminal detection uses the actual terminal descriptor, not just a character-device check.
 
 Confirmation and maintenance choices use Huh v2, backed by Bubble Tea/Bubbles, with a default negative choice. Forms run briefly inline on stderr, never in the alternate screen. A terminal input uses the interactive form; plain/accessibility mode uses Huh's linear confirm prompt with complete action and device context. The adapter supplies cancelable reads and checks I/O errors because Huh's accessible runner does not propagate them. Only an affirmative, successfully completed interaction can return to the existing proof issuer or maintenance plan executor. Takeover/input/power policy, proof identity, installation ownership and idempotency remain domain responsibilities.
@@ -396,16 +444,27 @@ See [Install and Update](install-and-update.md) for the public lifecycle.
 
 ## 16. Codex and Claude Code setup
 
-`jetkvm setup` is the onboarding authority for supported agent hosts. Device enrollment remains in the strict JetKVM configuration model:
+`jetkvm setup` is the onboarding authority for devices and supported agent hosts. Device enrollment and settings updates remain governed by the strict JetKVM configuration model and shared compiled policy:
 
 ```text
 jetkvm setup
+jetkvm setup device
+jetkvm config show
+jetkvm config set --device lab --idle-timeout 3m
 jetkvm setup codex
 jetkvm setup claude-code
 jetkvm setup doctor [codex|claude-code]
 jetkvm setup uninstall codex
 jetkvm setup uninstall claude-code
 ```
+
+In an interactive terminal, bare setup with no integration options guides the first device when needed. First-use `devices list` also guides enrollment and then continues to the actual list. Explicit host subcommands and existing integration options keep their native plugin lifecycle. JSON, piped input/output, and MCP startup never launch an interactive prompt. Missing configuration is `configuration_required`/exit 2 with an actionable agent/setup instruction, not an internal filesystem error.
+
+The shared enrollment service accepts an address, optional friendly name, explicit HTTP trust, and read-only or input access. It verifies `/device` over HTTP, derives the stable identity, chooses default state storage, validates the full configuration, and commits a private file atomically under a cross-process lock. Enrollment never creates WebRTC or sends HID. Passwords are entered into an expiring, tokenized loopback-only browser form and stored in the OS credential store; they are absent from MCP schemas, configuration values, receipts, and logs. Keyring failure has no plaintext fallback. The form uses exact Host checks, cross-origin POST protection, bounded bodies, no-store/no-referrer headers, and a restrictive CSP. It is a local operator flow, not a remote multi-user authentication boundary.
+
+New configurations allow the non-device-scoped `setup` administrative toolset alongside observation/video; existing explicit ceilings are not extended during enrollment. Input requires an explicit choice, and takeover confirmation remains required. Settings updates support output defaults, explicit global input enablement, per-device exposure/input/takeover permission, and idle/absolute control lifetimes. They do not mutate stable identity or route bindings, TLS pins, credential sources, state paths, power permissions, administrative policy, or confirmation requirements. Global input and per-device input are separate explicit settings; enabling only a device cannot silently expand a deployment ceiling.
+
+`jetkvm_update_config` stores a server-owned copy of an exact patch and presents its before/after values for human approval. Commit compares `expected_revision` under the same file lock; stale updates fail rather than overwrite another agent's work. CLI `config set` uses the same preview/commit and requires a terminal confirmation or explicit `--yes`. Discovery and execution are gated by compiled policy; settings commits recheck the current configuration policy under the lock. Read tools use bounded-read semantics; administrative flows are not automatically retried, and their retained status/revision is the recovery authority. Successful MCP progress means both save and activation completed. A post-commit activation failure must never remove the credential or claim the device is ready.
 
 The default host integration is a native plugin that packages one MCP definition and the canonical JetKVM skill. The plugin launches the installed executable as:
 

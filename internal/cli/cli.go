@@ -17,10 +17,12 @@ import (
 
 	"github.com/kaaanata/jetkvm-cli/internal/automation"
 	"github.com/kaaanata/jetkvm-cli/internal/buildinfo"
+	"github.com/kaaanata/jetkvm-cli/internal/config"
 	"github.com/kaaanata/jetkvm-cli/internal/confirmation"
 	"github.com/kaaanata/jetkvm-cli/internal/control"
 	"github.com/kaaanata/jetkvm-cli/internal/domain"
 	"github.com/kaaanata/jetkvm-cli/internal/operation"
+	"github.com/kaaanata/jetkvm-cli/internal/progress"
 	setupcore "github.com/kaaanata/jetkvm-cli/internal/setup"
 	"github.com/kaaanata/jetkvm-cli/internal/terminal"
 	updatecore "github.com/kaaanata/jetkvm-cli/internal/update"
@@ -167,6 +169,9 @@ type Dependencies struct {
 	ConfigPath    string
 	Updater       UpdateService
 	Setup         SetupService
+	MCPLoader     func(context.Context, string) (MCPServer, func() error, error)
+	OpenBrowser   func(context.Context, string) error
+	InputTerminal func(io.Reader) bool
 }
 
 // App owns one configured command tree and its output policy.
@@ -178,6 +183,12 @@ type App struct {
 	runtimeClose     func() error
 	executionStarted bool
 	presentationErr  error
+	activity         *terminal.Activity
+	executing        bool
+	pending          []pendingResult
+	verbose          bool
+	failureStage     string
+	executionContext context.Context
 }
 
 // New constructs the complete public command tree.
@@ -196,6 +207,11 @@ func (a *App) Command() *cobra.Command { return a.root }
 // output mode. Successful command results are the only non-MCP bytes written
 // to stdout.
 func (a *App) Execute(ctx context.Context, args []string) int {
+	a.executing = true
+	a.executionContext = ctx
+	a.pending = nil
+	a.failureStage = ""
+	defer func() { a.executing = false; a.pending = nil; a.executionContext = nil }()
 	a.executionStarted = false
 	a.presentationErr = nil
 	a.root.SetArgs(args)
@@ -206,9 +222,22 @@ func (a *App) Execute(ctx context.Context, args []string) int {
 	if a.runtimeClose != nil {
 		closeErr := a.runtimeClose()
 		a.runtimeClose = nil
-		if err == nil {
-			err = closeErr
+		err = errors.Join(err, closeErr)
+	}
+	stage := ""
+	if a.activity != nil {
+		stage = a.activity.Stage()
+		err = errors.Join(err, a.activity.Close())
+		if logger, ok := a.deps.Logger.(interface{ SetOutput(io.Writer) }); ok {
+			logger.SetOutput(a.deps.Stderr)
 		}
+		a.activity = nil
+	}
+	if a.failureStage != "" {
+		stage = a.failureStage
+	}
+	for _, result := range a.pending {
+		err = errors.Join(err, a.emitResult(result.command, result.data, err != nil))
 	}
 	if err == nil {
 		return ExitOK
@@ -224,13 +253,16 @@ func (a *App) Execute(ctx context.Context, args []string) int {
 			err = usageError(err)
 		}
 	}
-	if renderErr := renderFailure(a.deps.Stderr, mode, err, a.deps.IsTerminal(a.deps.Stderr)); renderErr != nil && a.deps.Logger != nil {
+	if renderErr := renderFailureAt(a.deps.Stderr, mode, err, a.deps.IsTerminal(a.deps.Stderr), stage); renderErr != nil && a.deps.Logger != nil {
 		a.deps.Logger.Error("render CLI failure", "error", renderErr)
 	}
 	return ExitCode(err)
 }
 
 func withDefaults(deps Dependencies) Dependencies {
+	if deps.InputTerminal == nil {
+		deps.InputTerminal = func(r io.Reader) bool { return terminal.IsTerminal(r) }
+	}
 	if deps.Stdin == nil {
 		deps.Stdin = os.Stdin
 	}
@@ -262,14 +294,43 @@ func (a *App) newRootCommand() *cobra.Command {
 		},
 		PersistentPreRunE: func(cmd *cobra.Command, _ []string) error {
 			a.executionStarted = true
+			if a.executing {
+				cmd.SetContext(a.executionContext)
+			}
+			// Attach after runtime output defaults are known. Maintenance commands
+			// have no runtime and can attach immediately.
+			if cmd.Name() == "serve" && cmd.Parent() != nil && cmd.Parent().Name() == "mcp" && a.deps.MCPLoader != nil {
+				server, close, err := a.deps.MCPLoader(cmd.Context(), a.configPath)
+				if err != nil {
+					return err
+				}
+				a.deps.MCP, a.runtimeClose = server, close
+				return nil
+			}
 			if cmd.Annotations["runtime"] == "skip" || a.deps.Loader == nil {
-				_, err := a.resolvedOutputMode()
-				return err
+				return a.startActivity(cmd)
 			}
 			if strings.TrimSpace(a.configPath) == "" {
 				return usageError(errors.New("--config is required"))
 			}
+			if cmd.Name() == "list" && cmd.Parent() != nil && cmd.Parent().Name() == "devices" && a.canGuideDevice() {
+				needed, err := a.deviceSetupNeeded()
+				if err != nil {
+					return err
+				}
+				if needed {
+					if _, err := a.guideDevice(cmd.Context()); err != nil {
+						return err
+					}
+				}
+			}
 			runtime, err := a.deps.Loader.Load(cmd.Context(), a.configPath)
+			if errors.Is(err, config.ErrMissing) && a.canGuideDevice() && (cmd.Parent() == nil || cmd.Parent().Name() != "mcp") {
+				if _, setupErr := a.guideDevice(cmd.Context()); setupErr != nil {
+					return setupErr
+				}
+				runtime, err = a.deps.Loader.Load(cmd.Context(), a.configPath)
+			}
 			if err != nil {
 				return err
 			}
@@ -288,8 +349,7 @@ func (a *App) newRootCommand() *cobra.Command {
 			if a.outputMode == outputAuto && runtime.OutputMode != "" && runtime.OutputMode != "auto" {
 				a.outputMode = runtime.OutputMode
 			}
-			_, err = a.resolvedOutputMode()
-			return err
+			return a.startActivity(cmd)
 		},
 		SilenceErrors: true,
 		SilenceUsage:  true,
@@ -302,6 +362,7 @@ func (a *App) newRootCommand() *cobra.Command {
 	root.SetUsageFunc(func(cmd *cobra.Command) error { return a.writeHelp(cmd, cmd.ErrOrStderr()) })
 	root.PersistentFlags().StringVarP(&a.outputMode, "output", "o", outputAuto, "output format: json or text (defaults to text on a TTY and JSON otherwise)")
 	root.PersistentFlags().StringVar(&a.configPath, "config", a.configPath, "path to the strict JetKVM JSON configuration")
+	root.PersistentFlags().BoolVarP(&a.verbose, "verbose", "v", false, "include diagnostic identifiers and receipt details in human output")
 	root.SetFlagErrorFunc(func(_ *cobra.Command, err error) error {
 		return usageError(err)
 	})
@@ -313,6 +374,7 @@ func (a *App) newRootCommand() *cobra.Command {
 		a.newCapabilitiesCommand(),
 		a.newDoctorCommand(),
 		a.newSetupCommand(),
+		a.newConfigCommand(),
 		a.newUpdateCommand(),
 		a.newInputCommand(),
 		a.newScreenshotCommand(),
@@ -370,6 +432,7 @@ func (a *App) newStatusCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			progress.Stage(cmd.Context(), "Reading device status")
 			status, err := a.deps.Devices.GetStatus(cmd.Context(), id, parsedDetail)
 			if err != nil {
 				return err
@@ -392,6 +455,7 @@ func (a *App) newCapabilitiesCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			progress.Stage(cmd.Context(), "Checking device capabilities")
 			snapshot, err := a.deps.Devices.GetCapabilities(cmd.Context(), id, refresh)
 			if err != nil {
 				return err
@@ -413,6 +477,7 @@ func (a *App) newDoctorCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			progress.Stage(cmd.Context(), "Checking device health")
 			status, err := a.deps.Devices.GetStatus(cmd.Context(), id, domain.StatusBasic)
 			if err != nil {
 				return err

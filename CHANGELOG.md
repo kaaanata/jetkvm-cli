@@ -1,5 +1,34 @@
 # Changelog
 
+## [1.0.6](https://github.com/kaaanata/jetkvm-cli/compare/v1.0.5...v1.0.6) (2026-09-05)
+
+
+### Bug Fixes
+
+* Guide first-time device connection from the CLI or an agent without requiring configuration JSON, hardware IDs, or state-file paths. MCP starts in a restricted bootstrap mode before any device is configured.
+* Keep device passwords in an expiring local setup page and the operating-system credential store. Enrollment verifies the device without opening a control session or sending input.
+* Add revision-bound settings updates through CLI and MCP for output, input permissions, device exposure, takeover permission, and session lifetimes. Reject stale changes and activate updates on the same MCP connection after active controls close.
+* Preserve existing policy ceilings and confirmation requirements, keep machine output free of interactive prompts, and update the bundled agent guidance. Cloud integration is not included.
+
+## [1.0.5](https://github.com/kaaanata/jetkvm-cli/compare/v1.0.4...v1.0.5) (2026-09-05)
+
+
+### Bug Fixes
+
+* Show inline stages, measured download progress, speed and elapsed time for long operations. Unknown sizes stay indeterminate; JSON and MCP output remain free of progress UI.
+* Run explicit update and rollback commands without a second confirmation. Hidden --yes flags remain compatible; ownership, signature, checksum and device-action authorization checks remain enforced.
+* Wait for control and runtime cleanup before displaying final results. Preserve partial receipts and distinguish cancellation, activation failure and failed rollback without encouraging unsafe retries.
+* Simplify human results, add --verbose diagnostic details and actionable recovery hints, and verify cancellation, prompt handoff and plain-output behavior through real terminal tests. Cloud candidate work is not included.
+
+## [1.0.4](https://github.com/kaaanata/jetkvm-cli/compare/v1.0.3...v1.0.4) (2026-09-05)
+
+
+### Bug Fixes
+
+* Lead human CLI output with the recorded outcome, group help by task, and wrap narrow-terminal content while preserving JSON and MCP contracts.
+* Request the initial video keyframe from the negotiated SDP identity without waiting for first RTP; retain freshness limits, deadlines, and generation fencing. This does not establish the cause of the earlier intermittent screenshot timeout.
+* Verify visual CLI hardware tests through actual released executables. Cloud integration remains an isolated candidate and is not included in this release.
+
 ## [1.0.3](https://github.com/kaaanata/jetkvm-cli/compare/v1.0.2...v1.0.3) (2026-09-04)
 
 

@@ -13,6 +13,7 @@ import (
 	"github.com/kaaanata/jetkvm-cli/internal/domain"
 	"github.com/kaaanata/jetkvm-cli/internal/input"
 	"github.com/kaaanata/jetkvm-cli/internal/jetkvm"
+	"github.com/kaaanata/jetkvm-cli/internal/progress"
 	"github.com/kaaanata/jetkvm-cli/internal/video"
 )
 
@@ -115,11 +116,13 @@ func (s *sessionAdapter) Observe(ctx context.Context, freshness time.Duration) (
 	}
 	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
+	progress.Stage(ctx, "Waiting for a fresh decoded screen")
 	observation, err := s.video.AwaitObservation(ctx, video.ObserveRequest{Generation: s.generation, Freshness: freshness, NotBefore: time.Now()})
 	if err != nil {
 		return ScreenObservation{}, err
 	}
 	var data bytes.Buffer
+	progress.Stage(ctx, "Encoding screenshot")
 	if err := png.Encode(&data, observation.Image); err != nil {
 		return ScreenObservation{}, err
 	}

@@ -116,3 +116,22 @@ func TestCharacterDeviceIsNotNecessarilyTerminal(t *testing.T) {
 		t.Fatal("null device is not a terminal")
 	}
 }
+
+func TestHeaderlessFieldsPreserveValuesAtNarrowWidths(t *testing.T) {
+	for _, width := range []int{24, 40, 59, 60, 80} {
+		r := New(io.Discard, false)
+		r.Width = width
+		text := r.Render(Document{Title: "Outcome", Tone: "success", Sections: []Section{Fields("Details", Row("device", "机架-device"), Row("long option label", "012345678901234567890123456789"), Row("injected", "\x1b[2Jvisible"))}})
+		if strings.Contains(text, "\x1b") {
+			t.Fatalf("escape sequence at width %d", width)
+		}
+		for line := range strings.SplitSeq(text, "\n") {
+			if ansi.StringWidth(line) > width {
+				t.Fatalf("width %d overflow: %q", width, line)
+			}
+		}
+		if !strings.Contains(strings.Join(strings.Fields(text), ""), "012345678901234567890123456789") {
+			t.Fatalf("value lost: %q", text)
+		}
+	}
+}

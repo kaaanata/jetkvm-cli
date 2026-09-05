@@ -9,6 +9,8 @@ import (
 	"image"
 	"sync"
 	"time"
+
+	"github.com/kaaanata/jetkvm-cli/internal/progress"
 )
 
 // KeyframeRequester requests an RTCP Picture Loss Indication for one fenced
@@ -226,7 +228,13 @@ func (p *Pipeline) AwaitObservation(ctx context.Context, request ObserveRequest)
 		pliDelay := max(time.Millisecond, p.limits.MinPLIInterval-now.Sub(p.lastPLI))
 		requester := p.requester
 		generation := p.generation
+		decoding := p.decodeCancel != nil
 		p.mu.Unlock()
+		if decoding {
+			progress.Stage(ctx, "Decoding screen")
+		} else {
+			progress.Stage(ctx, "Waiting for a fresh screen")
+		}
 
 		if shouldPLI {
 			if err := requester.RequestPLI(ctx, generation); err != nil {

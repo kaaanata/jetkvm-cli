@@ -23,6 +23,7 @@ type observingAutomation struct {
 	screen   automation.ScreenObservation
 	observed automation.ObserveRequest
 	closed   automation.ControlRequest
+	onClose  func() error
 }
 
 func (f *observingAutomation) Observe(_ context.Context, request automation.ObserveRequest) (automation.ScreenObservation, error) {
@@ -32,6 +33,11 @@ func (f *observingAutomation) Observe(_ context.Context, request automation.Obse
 
 func (f *observingAutomation) CloseControl(ctx context.Context, request automation.ControlRequest) (control.Handle, error) {
 	f.closed = request
+	if f.onClose != nil {
+		if err := f.onClose(); err != nil {
+			return control.Handle{}, err
+		}
+	}
 	return f.fakeAutomation.CloseControl(ctx, request)
 }
 

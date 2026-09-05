@@ -12,6 +12,62 @@ screen. Narrow tables stack and long values wrap instead of being truncated.
 
 ## Verification
 
+### Live operations
+
+`jetkvm update` and `jetkvm update rollback` no longer request redundant approval;
+ownership and artifact verification still run. Hidden `--yes` flags remain accepted
+for existing scripts. Use `--check` or `--dry-run` to inspect without applying.
+
+Long operations have inline stderr activity: stage labels and elapsed time, plus
+byte-based progress and measured average speed for downloads. Unknown sizes stay
+indeterminate. A download reaching 100% does not claim that the executable has been
+verified or installed. No new progress for ten seconds produces an explicit waiting
+message; it does not extend timeouts or cause a retry. Short operations avoid a
+visible activity view. No input is consumed and Ctrl-C still reaches the executable's
+signal context. Forms receive exclusive terminal ownership after the activity joins.
+
+`--verbose` restores diagnostic identifiers and timestamps in human receipts.
+Partial outcomes keep full details even without that flag. Final result output waits
+for control/runtime cleanup; a saved file plus a failed cleanup is a partial result,
+not an unqualified success. JSON schemas and MCP transport bytes are unchanged.
+
+Tests include measured/unknown-length downloads, cancellation after HTTP headers,
+output errors, stalled views and narrow widths, plus real PTY activity, diagnostic
+messages, prompt handoff and terminal-generated SIGINT. PTY children have a dedicated
+controlling terminal; writing Ctrl-C to an unowned PTY would not test signal delivery.
+Dynamic activity evidence is retained as raw streams, not misleading static SVGs.
+
+### Outcome and help presentation
+
+Human results start with the recorded outcome. A current installation produces
+only `Already up to date — JetKVM <version>.` Applied updates and rollbacks show
+the previous and current versions. Artifact verification is reported only when
+the receipt records it; rollback does not imply a new signature check. The undo
+command appears only when rollback is available. Installer-owned updates show
+the owning installer and its required command without claiming an update ran.
+Input results preserve the terminal claim, delivery, verification, retry safety
+and neutralization fields. Setup failures retain their failure kind.
+
+Root help uses Inspect, Control, Integrate and Maintain groups, getting-started
+examples and live Cobra descriptions/flags. Newly registered commands remain
+visible under More commands; Cloud, when registered, belongs to Integrate.
+Headerless label/value rows fit their content and wrap within the measured width;
+actual data tables retain column headers and stack on narrow terminals.
+
+The PTY fixtures cover 40 and 80 columns in color and plain modes. To retain
+actual captured streams, plain text and SVG previews outside version control:
+
+```sh
+JETKVM_TEST_PTY_EVIDENCE="$PWD/.cache/ui-evidence" \
+  go test ./internal/cli -run '^TestTerminalPTY$' -count=1
+```
+
+The `.ansi` files contain original PTY bytes; `.txt` and `.svg` are readable
+projections of those same bytes. Update, setup, input and screenshot receipts
+are deterministic fixtures, not evidence of a live device action or install.
+Confirmation streams are retained without a static SVG because they include
+cursor updates. The evidence directory is small and contains no Go build cache.
+
 Run from the repository root:
 
 ```sh
@@ -20,7 +76,8 @@ go test -race ./internal/terminal ./internal/cli ./cmd/jetkvm ./internal/confirm
 go vet ./...
 go run golang.org/x/vuln/cmd/govulncheck@v1.7.0 ./...
 go test ./internal/cli -run '^TestTerminalPTY$' -count=1 -v
-go test -race ./internal/cli -run '^TestTerminalPTY$' -count=10
+go test -race ./internal/cli -run '^TestTerminalPTY$/activity' -count=10
+go test -race ./internal/cli -run '^TestTerminalPTY$' -count=10 -timeout=20m
 go test -race ./internal/terminal -run '^TestTerminalReaderJoinsReadBeforeReturning$' -count=100
 go test ./internal/cli -run 'TestJSONBytesIndependentOfPresentation|TestMCPOutputBypassesPresentation' -count=1 -v
 go test ./internal/terminal -run 'TestPlainOutputAndWidth|TestConfirm' -count=1 -v

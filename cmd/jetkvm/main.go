@@ -7,8 +7,10 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"syscall"
 	"time"
@@ -41,11 +43,19 @@ func run(args []string) int {
 	}
 	build := buildinfo.Current()
 	application := cli.New(cli.Dependencies{
-		Version:    build,
-		ConfigPath: defaultConfigPath(),
-		Logger:     logger,
-		Setup:      newLazySetupService(),
-		Updater:    newLazyUpdateService(build),
+		Version:     build,
+		ConfigPath:  defaultConfigPath(),
+		Logger:      logger,
+		Setup:       newLazySetupService(),
+		Updater:     newLazyUpdateService(build),
+		OpenBrowser: openSetupBrowser,
+		MCPLoader: func(ctx context.Context, path string) (cli.MCPServer, func() error, error) {
+			host, err := app.NewMCPHost(ctx, path, build.Version)
+			if err != nil {
+				return nil, nil, err
+			}
+			return &mcpRunner{server: host, logger: logger}, host.Close, nil
+		},
 		Loader: cli.RuntimeLoaderFunc(func(ctx context.Context, path string) (cli.Runtime, error) {
 			runtime, err := app.Load(ctx, path, build.Version)
 			if err != nil {
@@ -74,8 +84,24 @@ func defaultConfigPath() string {
 }
 
 type mcpRunner struct {
-	server *mcpserver.Server
+	server interface {
+		RunStdio(context.Context) error
+		NewStatelessHTTPServer(mcpserver.HTTPConfig) (*http.Server, error)
+	}
 	logger *charmlog.Logger
+}
+
+func openSetupBrowser(ctx context.Context, url string) error {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	switch runtime.GOOS {
+	case "darwin":
+		return exec.CommandContext(ctx, "open", url).Run()
+	case "windows":
+		return exec.CommandContext(ctx, "rundll32", "url.dll,FileProtocolHandler", url).Run()
+	default:
+		return exec.CommandContext(ctx, "xdg-open", url).Run()
+	}
 }
 
 func (r *mcpRunner) Serve(ctx context.Context, options cli.MCPServeOptions) error {

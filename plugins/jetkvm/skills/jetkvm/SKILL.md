@@ -1,11 +1,19 @@
 ---
 name: jetkvm
-description: Inspect or control physical computers through configured JetKVM devices. Use for device status, PNG screenshots, keyboard or pointer input, bounded computer-use actions, control sessions, and supported ATX power operations. Do not use for ordinary local desktop control or generic SSH administration.
+description: Connect, configure, inspect, or control physical computers through JetKVM devices. Use for guided device setup, settings changes, status, screenshots, input, and supported power operations. Do not use for ordinary local desktop control or generic SSH administration.
 ---
 
 # JetKVM
 
 Use the JetKVM MCP tools as the live contract. Do not infer tool arguments from this skill when the server schema is available.
+
+## Device setup and settings
+
+When no devices are configured, or the user asks to connect one, use `jetkvm_setup`. Ask only for an address and optional friendly name; do not ask the user to construct configuration JSON, discover a hardware ID, or choose a state-file path. Present the returned local link for the human to review permissions and enter any password. Never request, read, or submit the password yourself. Check `jetkvm_setup_status` after the user finishes; continue on the same MCP connection only when its receipt confirms activation.
+
+For supported settings changes, read `jetkvm_get_config`, translate the user's request into an exact `jetkvm_update_config` proposal with the returned revision, and let the human approve the displayed changes. Read the retained status afterward. Global input enablement and per-device input permission are distinct choices; do not broaden either beyond the request. Close owned controls before changing settings. On a revision conflict, reread and review rather than replay a stale patch. If management tools are policy-disabled, report that boundary without editing files or bypassing it through another client.
+
+The CLI equivalents are `jetkvm setup device`, `jetkvm config show`, and `jetkvm config set`. An explicit `--yes` requires authorization for those exact changes. Identity/route rebinding, credentials, power permission, and confirmation-policy changes are not generic settings operations; do not substitute raw configuration edits.
 
 ## Target and readiness
 

@@ -32,6 +32,7 @@ type Options struct {
 	PolicyRevision     string
 	Scope              policy.Scope
 	DecoderAvailable   bool
+	Setup              SetupService
 }
 
 // AutomationService is the sole control-plane dependency of MCP handlers.
@@ -64,6 +65,7 @@ type Server struct {
 	policy       string
 	scope        policy.Scope
 	decoder      bool
+	setup        SetupService
 }
 
 // New constructs an MCP adapter. It performs all configuration validation that
@@ -84,6 +86,7 @@ func New(devices domain.DeviceService, options Options) (*Server, error) {
 		policy:       options.PolicyRevision,
 		scope:        options.Scope,
 		decoder:      options.DecoderAvailable,
+		setup:        options.Setup,
 	}, nil
 }
 
@@ -112,8 +115,8 @@ func (s *Server) newProtocolServer() *mcp.Server {
 		&mcp.Implementation{Name: s.name, Version: s.version},
 		&mcp.ServerOptions{
 			Capabilities: &mcp.ServerCapabilities{
-				Tools:     &mcp.ToolCapabilities{},
-				Resources: &mcp.ResourceCapabilities{},
+				Tools:     &mcp.ToolCapabilities{ListChanged: true},
+				Resources: &mcp.ResourceCapabilities{ListChanged: true},
 			},
 			SchemaCache: s.schemaCache,
 		},
@@ -122,6 +125,16 @@ func (s *Server) newProtocolServer() *mcp.Server {
 	s.registerTools(server)
 	s.registerResources(server)
 	return server
+}
+
+// ProtocolServer creates the shared protocol endpoint used by the application
+// reconfiguration owner. Install runs only behind that owner's dispatch gate.
+func (s *Server) ProtocolServer() *mcp.Server { return s.newProtocolServer() }
+
+func (s *Server) Install(server *mcp.Server, setup SetupService) {
+	s.setup = setup
+	s.registerTools(server)
+	s.registerResources(server)
 }
 
 // privateResourceCacheScope preserves the caller-specific cache boundary after

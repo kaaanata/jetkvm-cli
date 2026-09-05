@@ -27,6 +27,8 @@ Restart Codex after installation. Start a new Claude Code session or reload plug
 
 ## Installation modes
 
+See [Device setup and settings](#device-setup-and-settings) to connect hardware or change settings after the plugin is loaded.
+
 | Mode | Use case | Ownership |
 |---|---|---|
 | `plugin` | Codex CLI/Desktop and Claude Code | The host's marketplace and plugin manager own MCP plus skill installation |
@@ -46,7 +48,26 @@ Codex setup currently uses user scope in both modes because the host-native `cod
 
 The files under [`examples/codex`](../examples/codex) and [`examples/claude-code`](../examples/claude-code) are references for administrators who intentionally manage host configuration themselves. They are not the default onboarding path.
 
-## Idempotency and conflicts
+## Device setup and settings
+
+Ask your agent to connect your JetKVM. The MCP server starts before configuration exists, so the agent can call `jetkvm_setup`, suggest an address and friendly name, and return a local setup link. Open that link on the computer running JetKVM, review trust and permissions, and enter any device password there. Never put a password in the conversation. The service discovers the hardware identity and saves the local configuration; the agent checks `jetkvm_setup_status` and continues on the same MCP connection.
+
+The CLI equivalent is `jetkvm setup device`; a first-use interactive `jetkvm devices list` also guides setup automatically. Native plugin installation may require the host to reload the plugin once. Device enrollment and later settings activation do not require an MCP restart.
+
+For later changes, tell the agent what you want—for example, “Allow keyboard and mouse control for my lab device” or “Set its idle timeout to three minutes.” It reads `jetkvm_get_config`, proposes `jetkvm_update_config` against that revision, and returns a local page displaying the exact changes for approval. It then reads the retained setup status. CLI users can use:
+
+```sh
+jetkvm config show --output=json
+jetkvm config set --device lab --idle-timeout 3m
+jetkvm config set --enable-input=true --device lab --input=true
+jetkvm config set --device lab --input=false --yes --output=json
+```
+
+Supported settings are output defaults, explicit global input enablement, device exposure/input/takeover permission, and control idle/absolute lifetimes. Stable identity/route bindings, credential sources, TLS pins, power permissions, administrative policy, and confirmation requirements are intentionally outside generic settings updates. No password or credential-store reference appears in the settings view.
+
+New configurations enable the `setup` toolset. An administrator's existing explicit allow/deny policy remains authoritative: these tools are not silently added to a restricted deployment, and the CLI does not bypass its management policy. A stale revision is rejected; read the latest settings and review the new changes. Close active controls before applying a change. If a CLI update arrives while MCP controls are open, new effects are fenced while cleanup remains available; the saved settings activate after the handles close.
+
+## Integration idempotency and conflicts
 
 Before changing a host, setup classifies every relevant component as one of:
 

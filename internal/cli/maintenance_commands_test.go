@@ -34,7 +34,7 @@ func TestUpdateCheckDoesNotLoadDeviceRuntime(t *testing.T) {
 	}
 }
 
-func TestUpdateRequiresConfirmationBeforeSelfReplace(t *testing.T) {
+func TestUpdateIntentDoesNotRequireAnotherConfirmation(t *testing.T) {
 	updater := &fakeUpdateService{check: updatecore.CheckResult{
 		Installation: updatecore.Installation{Owner: updatecore.OwnerStandalone, Version: "1.0.0"},
 		Release:      updatecore.Release{Version: "1.1.0"}, Available: true,
@@ -44,7 +44,7 @@ func TestUpdateRequiresConfirmationBeforeSelfReplace(t *testing.T) {
 		Version: buildinfo.Info{Version: "1.0.0"}, Updater: updater,
 		Stdout: new(strings.Builder), Stderr: stderr, IsTerminal: func(io.Writer) bool { return false },
 	})
-	if code := application.Execute(t.Context(), []string{"update"}); code != ExitAuth || updater.applyCalls != 0 {
+	if code := application.Execute(t.Context(), []string{"update"}); code != ExitOK || updater.applyCalls != 1 {
 		t.Fatalf("exit = %d, apply calls = %d, stderr = %s", code, updater.applyCalls, stderr)
 	}
 }

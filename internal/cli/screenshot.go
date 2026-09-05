@@ -10,6 +10,7 @@ import (
 	"github.com/kaaanata/jetkvm-cli/internal/control"
 	"github.com/kaaanata/jetkvm-cli/internal/domain"
 	"github.com/kaaanata/jetkvm-cli/internal/policy"
+	"github.com/kaaanata/jetkvm-cli/internal/progress"
 	"github.com/kaaanata/jetkvm-cli/internal/video"
 	"github.com/spf13/cobra"
 )
@@ -58,6 +59,7 @@ func (a *App) newScreenshotCommand() *cobra.Command {
 				return err
 			}
 			return a.withEphemeralControl(command.Context(), deviceID, []string{"video"}, func(ctx context.Context, ref control.Ref) error {
+				progress.Stage(ctx, "Waiting for a fresh screen")
 				screen, err := observer.Observe(ctx, automation.ObserveRequest{
 					ControlRequest: automation.ControlRequest{DeviceID: deviceID, Ref: ref, Scope: policy.Scope{}},
 					Freshness:      freshness,
@@ -65,6 +67,7 @@ func (a *App) newScreenshotCommand() *cobra.Command {
 				if err != nil {
 					return err
 				}
+				progress.Stage(ctx, "Saving screenshot")
 				result, err := screenResult(screen, file)
 				if err != nil {
 					return err

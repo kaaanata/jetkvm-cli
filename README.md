@@ -28,18 +28,27 @@ Release installers verify the downloaded artifact before installing it. See [Ins
 ## Quickstart
 
 ```sh
-jetkvm setup
+jetkvm setup codex
+# or: jetkvm setup claude-code
 ```
 
-`jetkvm setup` detects installed Codex and Claude Code hosts and installs the JetKVM plugin, MCP server definition, and agent skill through each host's native plugin manager. Add devices with the [sanitized configuration example](examples/config.example.json), then verify them with `jetkvm devices list` and `jetkvm doctor <device>`. Configuration is local and credentials stay in the operating-system credential store or dedicated environment variables.
+After loading the plugin, tell your agent: **“Connect my JetKVM.”** The MCP server works before any device is configured. Your agent can ask for the device address and give you a local setup page; review the permissions and enter any password there, never in chat. Device identity, local configuration, and OS-keyring storage are handled automatically. The same MCP connection becomes ready after setup—no restart is needed for device enrollment.
+
+Prefer the terminal? Run `jetkvm setup device`. On first use, `jetkvm setup` or `jetkvm devices list` in an interactive terminal also opens the guided connection flow. Scripts receive `configuration_required` instead of a missing-file error and never consume an interactive prompt. The [configuration example](examples/config.example.json) remains available for administrators; it is not required for onboarding.
+
+You can change supported settings later through your agent or CLI:
+
+```sh
+jetkvm config show
+jetkvm config set --device lab --idle-timeout 3m
+jetkvm config set --enable-input=true --device lab --input=true
+```
+
+Changes require approval (`--yes` for an explicitly authorized script), reject stale revisions, and are picked up by an existing MCP connection. Close active controls before activation; changes never silently disconnect a session. See [device setup and settings](docs/agent-setup.md#device-setup-and-settings) for scope and safety boundaries.
 
 ## Screenshots and input
 
-The example configuration intentionally defaults to HTTP-only read access: `toolsets.allow` and device `permissions` contain only `observe`, and takeover is disabled. Before running the examples below, explicitly opt in for the target device:
-
-- Add `video` to both deployment `toolsets.allow` and `devices.<alias>.permissions` for screenshots. Add `input` to both lists for keyboard or pointer control, retaining `observe`.
-- Set `devices.<alias>.takeover.allowed` to `true` to permit opening a WebRTC session, which can displace an active browser.
-- Keep `devices.<alias>.takeover.require_confirmation` set to `true` unless you deliberately choose a different confirmation policy. Enabling video or input does not disable confirmation.
+Guided setup enables status and screen viewing. Keyboard and mouse control are an explicit setup choice, or can be enabled later through your agent or `config set` as shown above. Session takeover still requires confirmation; power permissions are not enabled. The administrator example is deliberately more restrictive and remains HTTP-observation-only until its policy is explicitly changed.
 
 Replace `lab` with a configured device alias or stable ID. Coordinates below are examples; choose them from the current screen and run only the action you intend.
 
@@ -106,7 +115,8 @@ Every operation targets a stable hardware identity. Friendly aliases improve erg
 
 | Command | Purpose |
 |---|---|
-| `jetkvm setup` | Install MCP and skills into supported coding agents |
+| `jetkvm setup` | Guided device connection and native coding-agent integration |
+| `jetkvm config show` / `jetkvm config set` | Read and update supported settings without editing JSON |
 | `jetkvm devices` | List and manage configured devices |
 | `jetkvm status` | Read source-attributed device status |
 | `jetkvm screenshot` / `jetkvm observe` | Save a PNG screenshot with server-owned metadata |
