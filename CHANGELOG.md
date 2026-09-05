@@ -5,7 +5,9 @@
 
 ### Bug Fixes
 
-* refine terminal UI and initial video startup ([#17](https://github.com/kaaanata/jetkvm-cli/issues/17)) ([e18f460](https://github.com/kaaanata/jetkvm-cli/commit/e18f4609debc87e039396615d49216c47114f3c3))
+* Lead human CLI output with the recorded outcome, group help by task, and wrap narrow-terminal content while preserving JSON and MCP contracts.
+* Request the initial video keyframe from the negotiated SDP identity without waiting for first RTP; retain freshness limits, deadlines, and generation fencing. This does not establish the cause of the earlier intermittent screenshot timeout.
+* Verify visual CLI hardware tests through actual released executables. Cloud integration remains an isolated candidate and is not included in this release.
 
 ## [1.0.3](https://github.com/kaaanata/jetkvm-cli/compare/v1.0.2...v1.0.3) (2026-09-04)
 
