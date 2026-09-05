@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.0.9](https://github.com/kaaanata/jetkvm-cli/compare/v1.0.8...v1.0.9) (2026-09-05)
+
+
+### Bug Fixes
+
+* preserve live control and operation ownership ([0838302](https://github.com/kaaanata/jetkvm-cli/commit/0838302d8dc09078ed34dcd1badcc6a5755641aa))
+
 ## [1.0.8](https://github.com/kaaanata/jetkvm-cli/compare/v1.0.7...v1.0.8) (2026-09-05)
 
 
