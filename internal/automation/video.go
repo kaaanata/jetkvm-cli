@@ -65,12 +65,17 @@ func (s *Service) Observe(ctx context.Context, request ObserveRequest) (ScreenOb
 	observeCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
 	request.DisableWake = true
+	lastReadinessErr := err
 	for {
 		result, err = s.Observe(observeCtx, request)
 		result.Wake = receipt
+		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			return result, errors.Join(lastReadinessErr, err)
+		}
 		if !errors.Is(err, ErrVideoSleeping) && !errors.Is(err, ErrVideoNoSignal) {
 			return result, err
 		}
+		lastReadinessErr = err
 		timer := time.NewTimer(250 * time.Millisecond)
 		select {
 		case <-observeCtx.Done():
