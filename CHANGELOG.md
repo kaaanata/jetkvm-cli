@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.0.11](https://github.com/kaaanata/jetkvm-cli/compare/v1.0.10...v1.0.11) (2026-09-05)
+
+
+### Bug Fixes
+
+* continuously decode fresh video frames ([#28](https://github.com/kaaanata/jetkvm-cli/issues/28)) ([5d43c5d](https://github.com/kaaanata/jetkvm-cli/commit/5d43c5d8a658dc8850e24112b7b13dbbab615490))
+
 ## [1.0.10](https://github.com/kaaanata/jetkvm-cli/compare/v1.0.9...v1.0.10) (2026-09-05)
 
 
