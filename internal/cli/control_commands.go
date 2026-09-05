@@ -20,6 +20,7 @@ import (
 	"github.com/kaaanata/jetkvm-cli/internal/input"
 	"github.com/kaaanata/jetkvm-cli/internal/operation"
 	"github.com/kaaanata/jetkvm-cli/internal/policy"
+	"github.com/kaaanata/jetkvm-cli/internal/progress"
 	"github.com/spf13/cobra"
 )
 
@@ -103,11 +104,16 @@ func (a *App) withEphemeralControl(ctx context.Context, deviceID domain.DeviceID
 			return err
 		}
 	}
+	progress.Stage(executionContext, "Connecting to device")
 	handle, err := service.OpenControl(executionContext, request)
 	if err != nil {
 		return err
 	}
 	defer func() {
+		if err != nil && a.activity != nil {
+			a.failureStage = a.activity.Stage()
+		}
+		progress.Stage(ctx, "Releasing temporary control")
 		closeCtx, cancel := context.WithTimeoutCause(context.Background(), 5*time.Second, errors.New("temporary control cleanup timed out"))
 		defer cancel()
 		_, closeErr := service.CloseControl(closeCtx, automation.ControlRequest{
@@ -515,6 +521,7 @@ func (a *App) newPowerStatusCommand() *cobra.Command {
 				return err
 			}
 			execute := func(ctx context.Context, ref control.Ref) error {
+				progress.Stage(ctx, "Reading power state")
 				state, err := service.GetPowerState(ctx, automation.ControlRequest{DeviceID: deviceID, Ref: ref, Scope: policy.Scope{}})
 				if err != nil {
 					return err
@@ -569,6 +576,7 @@ func (a *App) newPowerActionCommand(name string, action automation.PowerAction, 
 						return err
 					}
 				}
+				progress.Stage(executionContext, "Executing authorized power action")
 				receipt, err := service.PowerAction(executionContext, request)
 				if err != nil {
 					return err
@@ -695,6 +703,7 @@ func (a *App) runInputActions(command *cobra.Command, selector string, flags bou
 				return err
 			}
 		}
+		progress.Stage(executionContext, "Executing input actions")
 		result, runErr := service.RunActions(executionContext, request)
 		view := makeRunActionsResult(result)
 		if result.Observation != nil {
@@ -722,6 +731,8 @@ func (a *App) runInputActions(command *cobra.Command, selector string, flags bou
 }
 
 func (a *App) confirm(ctx context.Context, request ConfirmationRequest) (context.Context, error) {
+	resume := a.pauseActivity()
+	defer resume()
 	request.Interactive = a.deps.IsTerminal(a.deps.Stderr)
 	if a.deps.Confirmations == nil {
 		if request.Interactive {

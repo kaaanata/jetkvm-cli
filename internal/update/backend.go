@@ -23,6 +23,7 @@ import (
 	"github.com/Masterminds/semver/v3"
 	selfapply "github.com/creativeprojects/go-selfupdate/update"
 	"github.com/google/go-github/v86/github"
+	"github.com/kaaanata/jetkvm-cli/internal/progress"
 )
 
 const (
@@ -103,6 +104,7 @@ func NewGitHubBackend(config GitHubBackendConfig) (Backend, error) {
 }
 
 func (b *githubBackend) Resolve(ctx context.Context, query ReleaseQuery) (Release, error) {
+	progress.Stage(ctx, "Checking release metadata")
 	var candidate *github.RepositoryRelease
 	var err error
 	switch {
@@ -220,35 +222,41 @@ func (b *githubBackend) Apply(ctx context.Context, release Release, target, back
 	if !ok {
 		return newError(ErrApplyFailed, "release does not belong to the configured backend")
 	}
-	checksums, err := b.download(ctx, assets.checksumURL, 4<<20)
+	checksums, err := b.downloadAsset(ctx, assets.checksumURL, 4<<20, "Downloading checksums")
 	if err != nil {
 		return err
 	}
-	bundle, err := b.download(ctx, assets.bundleURL, 4<<20)
+	bundle, err := b.downloadAsset(ctx, assets.bundleURL, 4<<20, "Downloading signature bundle")
 	if err != nil {
 		return err
 	}
+	progress.Stage(ctx, "Verifying release signature")
 	if err := b.signature.Verify(checksums, bundle); err != nil {
 		return &Error{Kind: ErrSignatureVerification, Message: "verify checksums signature", Cause: err}
 	}
-	archive, err := b.download(ctx, assets.archiveURL, maxReleaseArchiveBytes)
+	archive, err := b.downloadAsset(ctx, assets.archiveURL, maxReleaseArchiveBytes, "Downloading archive")
 	if err != nil {
 		return err
 	}
+	progress.Stage(ctx, "Verifying archive checksum")
 	if err := verifyArchiveChecksum(release.AssetName, archive, checksums); err != nil {
 		return err
 	}
+	progress.Stage(ctx, "Extracting verified executable")
 	binary, err := extractReleaseBinary(release.AssetName, archive)
 	if err != nil {
 		return err
 	}
+	progress.Stage(ctx, "Replacing executable")
 	if err := selfapply.Apply(bytes.NewReader(binary), selfapply.Options{TargetPath: target, OldSavePath: backup}); err != nil {
 		return fmt.Errorf("replace executable with verified release: %w", err)
 	}
+	progress.Stage(ctx, "Checking installed executable")
 	return selfCheckCandidate(ctx, target, release.Version, b.operatingSys, b.architecture)
 }
 
-func (b *githubBackend) download(ctx context.Context, rawURL string, limit int64) ([]byte, error) {
+func (b *githubBackend) downloadAsset(ctx context.Context, rawURL string, limit int64, stage string) ([]byte, error) {
+	progress.Stage(ctx, stage)
 	parsed, err := url.Parse(rawURL)
 	if err != nil || !parsed.IsAbs() || (parsed.Scheme != "https" && !(b.allowHTTP && parsed.Scheme == "http")) {
 		return nil, newError(ErrReleaseResolution, "release asset URL is invalid")
@@ -268,7 +276,9 @@ func (b *githubBackend) download(ctx context.Context, rawURL string, limit int64
 	if response.ContentLength > limit {
 		return nil, newError(ErrReleaseResolution, "release asset exceeds size limit")
 	}
-	payload, err := io.ReadAll(io.LimitReader(response.Body, limit+1))
+	reader := &downloadProgress{reader: io.LimitReader(response.Body, limit+1), ctx: ctx, event: progress.Event{Stage: stage, Total: max(0, response.ContentLength)}}
+	progress.Report(ctx, reader.event)
+	payload, err := io.ReadAll(reader)
 	if err != nil {
 		return nil, err
 	}
@@ -276,6 +286,21 @@ func (b *githubBackend) download(ctx context.Context, rawURL string, limit int64
 		return nil, newError(ErrReleaseResolution, "release asset exceeds size limit")
 	}
 	return payload, nil
+}
+
+type downloadProgress struct {
+	reader io.Reader
+	ctx    context.Context
+	event  progress.Event
+}
+
+func (r *downloadProgress) Read(p []byte) (int, error) {
+	n, err := r.reader.Read(p)
+	r.event.Completed += int64(n)
+	if n > 0 {
+		progress.Report(r.ctx, r.event)
+	}
+	return n, err
 }
 
 func verifyArchiveChecksum(name string, archive, checksums []byte) error {

@@ -358,6 +358,44 @@ Human presentation uses one `internal/terminal` theme and renderer with Lip Glos
 
 Human documents lead with the recorded outcome and use a cyan accent, semantic success/attention colors, and muted supporting fields. Root help groups available Cobra commands into Inspect, Control, Integrate and Maintain, with a fallback for new commands and concrete getting-started examples. Help and key/value fields have no redundant column headings and wrap responsively. A no-op update is one sentence; an applied update, rollback and installer-required action remain distinct. Artifact verification and rollback availability are shown only from the receipt, and rollback does not imply a new signature check. These projections do not change machine serialization or operation authority.
 
+Maintenance intent is explicit: `update` and `update rollback` execute without a
+second confirmation. Existing `--yes` options remain hidden compatibility no-ops.
+`--check`, `--dry-run`, installation ownership, trust verification, and explicit
+downgrade restrictions remain unchanged. Device takeover, risky input/power and
+integration approval policies are independent of this maintenance UX decision.
+
+Context-scoped progress observations report real work stages and download bytes.
+The inline terminal activity uses the existing Bubbles spinner and progress bar,
+shows elapsed time and measured average transfer speed, and reports prolonged
+absence of progress without retrying work or changing deadlines. Unknown totals
+show received bytes, never an invented percentage. Download completion is not
+installation completion: signature verification, extraction, activation, self-check
+and receipt commit are separate stages. Frame waits, decoding, encoding, saving,
+control cleanup and integration steps report their own observed stages.
+
+The activity is output-only and never consumes stdin. The executable's signal
+context remains the cancellation owner. The renderer is paused and joined before
+forms, and finally joined after business/runtime cleanup. Logger messages are
+serialized through the activity; stderr ownership and terminal dimensions survive
+the output adapter. Two unconditional Bubble Tea 2.0.9 capability queries are
+suppressed at this output-only boundary to prevent unconsumed replies leaking into
+the next prompt; other rendering sequences remain unchanged. JSON/MCP/completion
+streams never receive this UI. Explicit non-TTY text, no-color, dumb-terminal and
+accessibility modes receive only stage lines.
+
+CLI result documents are buffered until command-scoped control and runtime cleanup
+complete. A cleanup or operation failure retains available results, labels the
+human view as partial, and reports the error separately; JSON receipt schemas are
+unchanged. Accepted input effects are not erased by a failed post-action capture or
+cleanup. Normal human output hides diagnostic IDs/timestamps unless `--verbose` is
+requested, but keeps delivery, verification, retry safety and neutralization. Partial
+outcomes retain full details. Error guidance names safe next steps without promising
+that cancellation undoes delivered work or encouraging automatic write retries.
+CLI cancellation is classified as `canceled` (exit 5, not automatically retryable).
+Update activation failures retain `update_apply_failed` (exit 5), and failed rollback
+retains `rollback_failed` (exit 8); a wrapped cancellation must not hide that uncertain
+installation state. These classifications do not add fields to the JSON envelope.
+
 The renderer measures the destination terminal width, wraps Unicode by display width and stacks narrow tables without truncating values. It does not require emoji or color to convey meaning. Display text is stripped of injected terminal commands. Non-TTY text, a nonempty `NO_COLOR`, `TERM=dumb`, or `JETKVM_ACCESSIBLE=1` produce no control sequences, including when forced-color environment variables are present. `JETKVM_ACCESSIBLE=1` selects linear screen-reader-friendly prompts. Terminal detection uses the actual terminal descriptor, not just a character-device check.
 
 Confirmation and maintenance choices use Huh v2, backed by Bubble Tea/Bubbles, with a default negative choice. Forms run briefly inline on stderr, never in the alternate screen. A terminal input uses the interactive form; plain/accessibility mode uses Huh's linear confirm prompt with complete action and device context. The adapter supplies cancelable reads and checks I/O errors because Huh's accessible runner does not propagate them. Only an affirmative, successfully completed interaction can return to the existing proof issuer or maintenance plan executor. Takeover/input/power policy, proof identity, installation ownership and idempotency remain domain responsibilities.

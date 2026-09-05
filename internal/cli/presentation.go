@@ -129,10 +129,14 @@ func resultDocument(command string, data any) (terminal.Document, error) {
 		d.Title, d.Tone = "Already up to date — JetKVM "+v.Installation.Version+".", "success"
 		if v.Available {
 			d.Title, d.Tone = "JetKVM "+v.Release.Version+" is available", ""
-			d.Sections = append(d.Sections, fields("", row("installed", v.Installation.Version), row("owner", v.Installation.Owner)), terminal.Section{Title: "Next", Text: "jetkvm update"})
+			next := "jetkvm update"
+			if v.Installation.Owner != updatecore.OwnerStandalone {
+				next = "Use the installation owner's update mechanism."
+			}
+			d.Sections = append(d.Sections, fields("", row("installed", v.Installation.Version), row("owner", v.Installation.Owner)), terminal.Section{Title: "Next", Text: next})
 		}
 	case updatecore.Plan:
-		d.Title = "Update JetKVM?"
+		d.Title = "Update plan"
 		if v.Action == updatecore.ActionNone {
 			d.Title, d.Tone = "Already up to date — JetKVM "+v.CurrentVersion+".", "success"
 			break
@@ -245,7 +249,11 @@ func operationSections(v operationReceiptResult) []terminal.Section {
 
 func screenshotSection(v screenshotResult) terminal.Section {
 	row := terminal.Row
-	return terminal.Fields("Screenshot", row("file", v.File), row("observation", v.Observation.ID), row("device", v.Observation.DeviceID), row("captured", v.Observation.CapturedAt.Format(time.RFC3339Nano)), row("trust", v.Observation.Trust))
+	section := terminal.Fields("Screenshot", row("file", v.File), row("observation", v.Observation.ID), row("device", v.Observation.DeviceID), row("captured", v.Observation.CapturedAt.Format(time.RFC3339Nano)), row("trust", v.Observation.Trust))
+	if frame := v.Observation.Frame; frame.Width > 0 && frame.Height > 0 {
+		section.Rows = append(section.Rows, row("size", fmt.Sprintf("%d × %d", frame.Width, frame.Height)))
+	}
+	return section
 }
 
 func setupReceiptSection(v setupcore.Receipt) terminal.Section {

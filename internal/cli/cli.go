@@ -21,6 +21,7 @@ import (
 	"github.com/kaaanata/jetkvm-cli/internal/control"
 	"github.com/kaaanata/jetkvm-cli/internal/domain"
 	"github.com/kaaanata/jetkvm-cli/internal/operation"
+	"github.com/kaaanata/jetkvm-cli/internal/progress"
 	setupcore "github.com/kaaanata/jetkvm-cli/internal/setup"
 	"github.com/kaaanata/jetkvm-cli/internal/terminal"
 	updatecore "github.com/kaaanata/jetkvm-cli/internal/update"
@@ -178,6 +179,12 @@ type App struct {
 	runtimeClose     func() error
 	executionStarted bool
 	presentationErr  error
+	activity         *terminal.Activity
+	executing        bool
+	pending          []pendingResult
+	verbose          bool
+	failureStage     string
+	executionContext context.Context
 }
 
 // New constructs the complete public command tree.
@@ -196,6 +203,11 @@ func (a *App) Command() *cobra.Command { return a.root }
 // output mode. Successful command results are the only non-MCP bytes written
 // to stdout.
 func (a *App) Execute(ctx context.Context, args []string) int {
+	a.executing = true
+	a.executionContext = ctx
+	a.pending = nil
+	a.failureStage = ""
+	defer func() { a.executing = false; a.pending = nil; a.executionContext = nil }()
 	a.executionStarted = false
 	a.presentationErr = nil
 	a.root.SetArgs(args)
@@ -206,9 +218,22 @@ func (a *App) Execute(ctx context.Context, args []string) int {
 	if a.runtimeClose != nil {
 		closeErr := a.runtimeClose()
 		a.runtimeClose = nil
-		if err == nil {
-			err = closeErr
+		err = errors.Join(err, closeErr)
+	}
+	stage := ""
+	if a.activity != nil {
+		stage = a.activity.Stage()
+		err = errors.Join(err, a.activity.Close())
+		if logger, ok := a.deps.Logger.(interface{ SetOutput(io.Writer) }); ok {
+			logger.SetOutput(a.deps.Stderr)
 		}
+		a.activity = nil
+	}
+	if a.failureStage != "" {
+		stage = a.failureStage
+	}
+	for _, result := range a.pending {
+		err = errors.Join(err, a.emitResult(result.command, result.data, err != nil))
 	}
 	if err == nil {
 		return ExitOK
@@ -224,7 +249,7 @@ func (a *App) Execute(ctx context.Context, args []string) int {
 			err = usageError(err)
 		}
 	}
-	if renderErr := renderFailure(a.deps.Stderr, mode, err, a.deps.IsTerminal(a.deps.Stderr)); renderErr != nil && a.deps.Logger != nil {
+	if renderErr := renderFailureAt(a.deps.Stderr, mode, err, a.deps.IsTerminal(a.deps.Stderr), stage); renderErr != nil && a.deps.Logger != nil {
 		a.deps.Logger.Error("render CLI failure", "error", renderErr)
 	}
 	return ExitCode(err)
@@ -262,9 +287,13 @@ func (a *App) newRootCommand() *cobra.Command {
 		},
 		PersistentPreRunE: func(cmd *cobra.Command, _ []string) error {
 			a.executionStarted = true
+			if a.executing {
+				cmd.SetContext(a.executionContext)
+			}
+			// Attach after runtime output defaults are known. Maintenance commands
+			// have no runtime and can attach immediately.
 			if cmd.Annotations["runtime"] == "skip" || a.deps.Loader == nil {
-				_, err := a.resolvedOutputMode()
-				return err
+				return a.startActivity(cmd)
 			}
 			if strings.TrimSpace(a.configPath) == "" {
 				return usageError(errors.New("--config is required"))
@@ -288,8 +317,7 @@ func (a *App) newRootCommand() *cobra.Command {
 			if a.outputMode == outputAuto && runtime.OutputMode != "" && runtime.OutputMode != "auto" {
 				a.outputMode = runtime.OutputMode
 			}
-			_, err = a.resolvedOutputMode()
-			return err
+			return a.startActivity(cmd)
 		},
 		SilenceErrors: true,
 		SilenceUsage:  true,
@@ -302,6 +330,7 @@ func (a *App) newRootCommand() *cobra.Command {
 	root.SetUsageFunc(func(cmd *cobra.Command) error { return a.writeHelp(cmd, cmd.ErrOrStderr()) })
 	root.PersistentFlags().StringVarP(&a.outputMode, "output", "o", outputAuto, "output format: json or text (defaults to text on a TTY and JSON otherwise)")
 	root.PersistentFlags().StringVar(&a.configPath, "config", a.configPath, "path to the strict JetKVM JSON configuration")
+	root.PersistentFlags().BoolVarP(&a.verbose, "verbose", "v", false, "include diagnostic identifiers and receipt details in human output")
 	root.SetFlagErrorFunc(func(_ *cobra.Command, err error) error {
 		return usageError(err)
 	})
@@ -370,6 +399,7 @@ func (a *App) newStatusCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			progress.Stage(cmd.Context(), "Reading device status")
 			status, err := a.deps.Devices.GetStatus(cmd.Context(), id, parsedDetail)
 			if err != nil {
 				return err
@@ -392,6 +422,7 @@ func (a *App) newCapabilitiesCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			progress.Stage(cmd.Context(), "Checking device capabilities")
 			snapshot, err := a.deps.Devices.GetCapabilities(cmd.Context(), id, refresh)
 			if err != nil {
 				return err
@@ -413,6 +444,7 @@ func (a *App) newDoctorCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			progress.Stage(cmd.Context(), "Checking device health")
 			status, err := a.deps.Devices.GetStatus(cmd.Context(), id, domain.StatusBasic)
 			if err != nil {
 				return err

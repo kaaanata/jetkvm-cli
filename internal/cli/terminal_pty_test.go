@@ -9,9 +9,11 @@ import (
 	"html"
 	"os"
 	"os/exec"
+	"os/signal"
 	"path/filepath"
 	"regexp"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -20,6 +22,7 @@ import (
 	"github.com/charmbracelet/x/xpty"
 	"github.com/kaaanata/jetkvm-cli/internal/domain"
 	"github.com/kaaanata/jetkvm-cli/internal/input"
+	"github.com/kaaanata/jetkvm-cli/internal/progress"
 	setupcore "github.com/kaaanata/jetkvm-cli/internal/setup"
 	"github.com/kaaanata/jetkvm-cli/internal/terminal"
 	updatecore "github.com/kaaanata/jetkvm-cli/internal/update"
@@ -32,6 +35,42 @@ func TestTerminalFixture(t *testing.T) {
 	scenario := os.Getenv("JETKVM_TEST_PTY")
 	if scenario == "" {
 		return
+	}
+	if strings.HasPrefix(scenario, "activity") {
+		ctx, stop := signal.NotifyContext(t.Context(), os.Interrupt)
+		defer stop()
+		activity := terminal.NewActivity(os.Stderr, true)
+		total := int64(16 << 20)
+		if scenario == "activity-unknown" {
+			total = 0
+		}
+		activity.Report(progress.Event{Stage: "Downloading archive", Completed: 8 << 20, Total: total})
+		if scenario == "activity-cancel" {
+			<-ctx.Done()
+		} else {
+			time.Sleep(220 * time.Millisecond)
+			_, _ = activity.Write([]byte("Download diagnostic\n"))
+			time.Sleep(220 * time.Millisecond)
+			activity.Pause()
+			if scenario == "activity-confirm" {
+				fmt.Fprintln(os.Stderr, "prompt begin")
+				_, err := terminal.New(os.Stderr, true).Confirm(ctx, os.Stdin, "Confirm JetKVM action", "Fixture approval only")
+				if err != nil {
+					t.Fatal(err)
+				}
+				fmt.Fprintln(os.Stderr, "prompt end")
+			} else {
+				_, _ = activity.Write([]byte("Prompt owns terminal\n"))
+			}
+			activity.Resume()
+			activity.Report(progress.Event{Stage: "Verifying archive"})
+			time.Sleep(220 * time.Millisecond)
+		}
+		if err := activity.Close(); err != nil {
+			t.Fatal(err)
+		}
+		fmt.Fprintln(os.Stdout, "activity joined")
+		os.Exit(0)
 	}
 	if strings.HasPrefix(scenario, "confirm") {
 		ctx := t.Context()
@@ -93,6 +132,13 @@ func TestTerminalPTY(t *testing.T) {
 		plain                            bool
 	}{
 		{"help", "help", "", "", "Commands", false},
+		{"activity-known", "activity-known", "", "", "activity joined", false},
+		{"activity-unknown", "activity-unknown", "", "", "activity joined", false},
+		{"activity-cancel", "activity-cancel", "", "\x03", "activity joined", false},
+		{"activity-confirm", "activity-confirm", "", "\r", "activity joined", false},
+		{"activity-plain", "activity-known", "NO_COLOR=1", "", "activity joined", true},
+		{"activity-dumb", "activity-known", "TERM=dumb", "", "activity joined", true},
+		{"activity-accessible", "activity-known", "JETKVM_ACCESSIBLE=1", "", "activity joined", true},
 		{"root-help", "root-help", "", "", "Get started", false},
 		{"plain-root-help", "root-help", "NO_COLOR=1", "", "Get started", true},
 		{"update-current", "update-current", "", "", "Already up to date", false},
@@ -124,6 +170,9 @@ func TestTerminalPTY(t *testing.T) {
 				}
 				defer pty.Close()
 				cmd := exec.CommandContext(ctx, os.Args[0], "-test.run=^TestTerminalFixture$")
+				// A PTY alone is not a controlling terminal. Give the child its
+				// own foreground session so terminal Ctrl-C produces SIGINT.
+				cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true, Setctty: true, Ctty: 0}
 				cmd.Env = append(os.Environ(), "TERM=xterm-256color", "NO_COLOR=", "JETKVM_ACCESSIBLE=", "JETKVM_TEST_PTY="+tc.scenario)
 				if tc.env != "" {
 					cmd.Env = append(cmd.Env, tc.env)
@@ -164,7 +213,8 @@ func TestTerminalPTY(t *testing.T) {
 							break loop
 						}
 						output.WriteString(chunk)
-						if tc.input != "" && !sent && strings.Contains(ansi.Strip(output.String()), "Confirm JetKVM action") {
+						ready := strings.Contains(ansi.Strip(output.String()), "Confirm JetKVM action") || tc.scenario == "activity-cancel" && strings.Contains(ansi.Strip(output.String()), "Downloading archive")
+						if tc.input != "" && !sent && ready {
 							if _, err := pty.Write([]byte(tc.input)); err != nil {
 								t.Fatal(err)
 							}
@@ -190,11 +240,41 @@ func TestTerminalPTY(t *testing.T) {
 				if !tc.plain && !strings.Contains(output.String(), "\x1b") {
 					t.Fatal("styled PTY did not use the theme")
 				}
-				if !strings.HasPrefix(tc.scenario, "confirm") {
+				if !strings.HasPrefix(tc.scenario, "confirm") && !strings.HasPrefix(tc.scenario, "activity") {
 					for line := range strings.SplitSeq(text, "\n") {
 						if ansi.StringWidth(line) > width {
 							t.Fatalf("PTY width %d overflow: %q", width, line)
 						}
+					}
+				}
+				if strings.HasPrefix(tc.scenario, "activity") {
+					if !tc.plain && !strings.Contains(output.String(), "\x1b[?25h") {
+						t.Fatal("terminal cursor was not restored")
+					}
+					activityOutput := output.String()
+					if tc.scenario == "activity-confirm" {
+						before, rest, begin := strings.Cut(activityOutput, "prompt begin")
+						_, after, end := strings.Cut(rest, "prompt end")
+						if !begin || !end {
+							t.Fatal("missing prompt ownership boundaries")
+						}
+						// Huh owns input while active and may legitimately query it.
+						activityOutput = before + after
+					}
+					if strings.Contains(activityOutput, ansi.RequestModeSynchronizedOutput) || strings.Contains(activityOutput, ansi.RequestModeUnicodeCore) {
+						t.Fatal("output-only activity queried terminal input")
+					}
+					if tc.scenario == "activity-unknown" && strings.Contains(text, "%") {
+						t.Fatal("invented percentage")
+					}
+					if tc.scenario == "activity-known" && !tc.plain && !strings.Contains(text, "50%") {
+						t.Fatal("missing actual progress")
+					}
+					if tc.scenario != "activity-cancel" && !strings.Contains(text, "Download diagnostic") {
+						t.Fatal("lost diagnostic output")
+					}
+					if strings.Contains(text[strings.LastIndex(text, "activity joined"):], "Downloading") {
+						t.Fatal("renderer survived join")
 					}
 				}
 				if directory := os.Getenv("JETKVM_TEST_PTY_EVIDENCE"); directory != "" {
@@ -217,7 +297,7 @@ func writePTYEvidence(t *testing.T, directory, name, raw, text string, width int
 			t.Fatal(err)
 		}
 	}
-	if strings.HasPrefix(name, "confirm") || strings.Contains(name, "-confirm") {
+	if strings.HasPrefix(name, "confirm") || strings.Contains(name, "-confirm") || strings.HasPrefix(name, "activity") {
 		return
 	}
 	lines := strings.Split(strings.TrimRight(strings.ReplaceAll(raw, "\r", ""), "\n"), "\n")
