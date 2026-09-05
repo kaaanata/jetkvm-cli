@@ -12,6 +12,31 @@ screen. Narrow tables stack and long values wrap instead of being truncated.
 
 ## Verification
 
+### Live operations
+
+`jetkvm update` and `jetkvm update rollback` no longer request redundant approval;
+ownership and artifact verification still run. Hidden `--yes` flags remain accepted
+for existing scripts. Use `--check` or `--dry-run` to inspect without applying.
+
+Long operations have inline stderr activity: stage labels and elapsed time, plus
+byte-based progress and measured average speed for downloads. Unknown sizes stay
+indeterminate. A download reaching 100% does not claim that the executable has been
+verified or installed. No new progress for ten seconds produces an explicit waiting
+message; it does not extend timeouts or cause a retry. Short operations avoid a
+visible activity view. No input is consumed and Ctrl-C still reaches the executable's
+signal context. Forms receive exclusive terminal ownership after the activity joins.
+
+`--verbose` restores diagnostic identifiers and timestamps in human receipts.
+Partial outcomes keep full details even without that flag. Final result output waits
+for control/runtime cleanup; a saved file plus a failed cleanup is a partial result,
+not an unqualified success. JSON schemas and MCP transport bytes are unchanged.
+
+Tests include measured/unknown-length downloads, cancellation after HTTP headers,
+output errors, stalled views and narrow widths, plus real PTY activity, diagnostic
+messages, prompt handoff and terminal-generated SIGINT. PTY children have a dedicated
+controlling terminal; writing Ctrl-C to an unowned PTY would not test signal delivery.
+Dynamic activity evidence is retained as raw streams, not misleading static SVGs.
+
 ### Outcome and help presentation
 
 Human results start with the recorded outcome. A current installation produces
@@ -51,7 +76,8 @@ go test -race ./internal/terminal ./internal/cli ./cmd/jetkvm ./internal/confirm
 go vet ./...
 go run golang.org/x/vuln/cmd/govulncheck@v1.7.0 ./...
 go test ./internal/cli -run '^TestTerminalPTY$' -count=1 -v
-go test -race ./internal/cli -run '^TestTerminalPTY$' -count=10
+go test -race ./internal/cli -run '^TestTerminalPTY$/activity' -count=10
+go test -race ./internal/cli -run '^TestTerminalPTY$' -count=10 -timeout=20m
 go test -race ./internal/terminal -run '^TestTerminalReaderJoinsReadBeforeReturning$' -count=100
 go test ./internal/cli -run 'TestJSONBytesIndependentOfPresentation|TestMCPOutputBypassesPresentation' -count=1 -v
 go test ./internal/terminal -run 'TestPlainOutputAndWidth|TestConfirm' -count=1 -v

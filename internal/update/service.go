@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/Masterminds/semver/v3"
+	"github.com/kaaanata/jetkvm-cli/internal/progress"
 )
 
 type InstallationResolver interface {
@@ -148,6 +149,7 @@ func (s *Service) Apply(ctx context.Context, plan Plan) (Result, error) {
 		return Result{}, newError(ErrUnsupportedOwner, "only standalone installations can replace the executable")
 	}
 
+	progress.Stage(ctx, "Acquiring update lock")
 	unlock, err := s.locker.Lock(ctx)
 	if err != nil {
 		return Result{}, err
@@ -168,6 +170,7 @@ func (s *Service) Apply(ctx context.Context, plan Plan) (Result, error) {
 	backup := previousBinaryPath(plan.Executable)
 	if err := s.backend.Apply(ctx, plan.Release, plan.Executable, backup); err != nil {
 		if _, statErr := os.Stat(backup); statErr == nil {
+			progress.Stage(ctx, "Restoring previous executable after failure")
 			failed := failedBinaryPath(plan.Executable)
 			rollbackErr := s.backend.ReplaceFromFile(ctx, backup, plan.Executable, failed)
 			if rollbackErr != nil {
@@ -187,6 +190,7 @@ func (s *Service) Apply(ctx context.Context, plan Plan) (Result, error) {
 	next.Version = plan.TargetVersion
 	next.Channel = plan.Channel
 	next.InstalledAt = s.now().UTC()
+	progress.Stage(ctx, "Committing installation receipt")
 	if err := s.receipts.Save(next); err != nil {
 		failed := failedBinaryPath(plan.Executable)
 		rollbackErr := s.backend.ReplaceFromFile(ctx, backup, plan.Executable, failed)

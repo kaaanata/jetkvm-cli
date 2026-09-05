@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/kaaanata/jetkvm-cli/internal/progress"
 	setupcore "github.com/kaaanata/jetkvm-cli/internal/setup"
 	"github.com/kaaanata/jetkvm-cli/internal/terminal"
 	updatecore "github.com/kaaanata/jetkvm-cli/internal/update"
@@ -29,10 +30,12 @@ func (a *App) newUpdateCommand() *cobra.Command {
 				return usageError(errors.New("--check and --dry-run cannot be combined"))
 			}
 			request := updatecore.Request{Version: version, Channel: updatecore.Channel(channel), AllowDowngrade: allowDowngrade}
+			progress.Stage(command.Context(), "Checking installation ownership")
 			resolution, err := a.deps.Updater.Resolve(command.Context(), request)
 			if err != nil {
 				return err
 			}
+			progress.Stage(command.Context(), "Checking for updates")
 			checked, err := a.deps.Updater.Check(command.Context(), resolution)
 			if err != nil {
 				return err
@@ -47,11 +50,8 @@ func (a *App) newUpdateCommand() *cobra.Command {
 			if dryRun {
 				return a.writeResult("update.plan", plan)
 			}
-			if plan.Action == updatecore.ActionSelfReplace {
-				if err := a.confirmMaintenance("Replace the current JetKVM CLI with "+plan.TargetVersion+"?", yes); err != nil {
-					return err
-				}
-			}
+			// Invoking update is the user's explicit intent. Ownership, trust and
+			// downgrade checks remain authoritative in the update service.
 			result, err := a.deps.Updater.Apply(command.Context(), plan)
 			if err != nil {
 				return err
@@ -61,7 +61,8 @@ func (a *App) newUpdateCommand() *cobra.Command {
 	}
 	command.Flags().BoolVar(&checkOnly, "check", false, "check for an update without changing the installation")
 	command.Flags().BoolVar(&dryRun, "dry-run", false, "resolve and print the update plan without applying it")
-	command.Flags().BoolVarP(&yes, "yes", "y", false, "confirm the self-update without prompting")
+	command.Flags().BoolVarP(&yes, "yes", "y", false, "compatibility flag; update already runs without confirmation")
+	_ = command.Flags().MarkHidden("yes")
 	command.Flags().StringVar(&version, "version", "", "install an exact semantic version")
 	command.Flags().StringVar(&channel, "channel", string(updatecore.ChannelStable), "release channel: stable or prerelease")
 	command.Flags().BoolVar(&allowDowngrade, "allow-downgrade", false, "allow an explicitly versioned downgrade")
@@ -76,9 +77,7 @@ func (a *App) newUpdateCommand() *cobra.Command {
 			if a.deps.Updater == nil {
 				return unavailableDependency("update service")
 			}
-			if err := a.confirmMaintenance("Restore the previous JetKVM CLI version?", rollbackYes); err != nil {
-				return err
-			}
+			progress.Stage(command.Context(), "Restoring previous installation")
 			result, err := a.deps.Updater.Rollback(command.Context())
 			if err != nil {
 				return err
@@ -86,7 +85,8 @@ func (a *App) newUpdateCommand() *cobra.Command {
 			return a.writeResult("update.rollback", result)
 		},
 	}
-	rollback.Flags().BoolVarP(&rollbackYes, "yes", "y", false, "confirm rollback without prompting")
+	rollback.Flags().BoolVarP(&rollbackYes, "yes", "y", false, "compatibility flag; rollback already runs without confirmation")
+	_ = rollback.Flags().MarkHidden("yes")
 	command.AddCommand(rollback)
 	return command
 }
@@ -145,6 +145,7 @@ func (a *App) runSetupMany(ctx context.Context, hosts []setupcore.Host, flags se
 	var plans []setupcore.Plan
 	var unavailable []error
 	for _, host := range hosts {
+		progress.Stage(ctx, "Inspecting "+string(host)+" integration")
 		target, err := setupTarget(host, flags)
 		if err != nil {
 			return err
@@ -179,11 +180,17 @@ func (a *App) runSetupMany(ctx context.Context, hosts []setupcore.Host, flags se
 	}
 	var receipts []setupcore.Receipt
 	for _, plan := range plans {
+		progress.Stage(ctx, "Installing "+string(plan.Target.Host)+" integration")
 		receipt, err := a.deps.Setup.Apply(ctx, plan)
+		if receipt.Status != "" {
+			receipts = append(receipts, receipt)
+		}
 		if err != nil {
+			if len(receipts) > 0 {
+				return errors.Join(err, a.writeResult("setup", receipts))
+			}
 			return err
 		}
-		receipts = append(receipts, receipt)
 	}
 	if len(receipts) == 0 {
 		return errors.Join(unavailable...)
@@ -207,6 +214,7 @@ func (a *App) newSetupDoctorCommand(flags *setupFlags) *cobra.Command {
 			}
 			var reports []setupcore.DoctorReport
 			for _, host := range hosts {
+				progress.Stage(command.Context(), "Checking "+string(host)+" integration")
 				target, err := setupTarget(host, *flags)
 				if err != nil {
 					return err
@@ -248,8 +256,12 @@ func (a *App) newSetupUninstallCommand(flags *setupFlags) *cobra.Command {
 					return err
 				}
 			}
+			progress.Stage(command.Context(), "Inspecting owned "+string(host)+" integration")
 			receipt, err := a.deps.Setup.Uninstall(command.Context(), target, flags.dryRun)
 			if err != nil {
+				if receipt.Status != "" {
+					return errors.Join(err, a.writeResult("setup.uninstall", receipt))
+				}
 				return err
 			}
 			return a.writeResult("setup.uninstall", receipt)
@@ -299,6 +311,8 @@ func parseSetupHost(value string) (setupcore.Host, error) {
 }
 
 func (a *App) confirmMaintenance(message string, yes bool) error {
+	resume := a.pauseActivity()
+	defer resume()
 	if yes {
 		return nil
 	}

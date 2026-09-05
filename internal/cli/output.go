@@ -47,7 +47,20 @@ func unavailableDependency(name string) error {
 	return fmt.Errorf("%s is not configured", name)
 }
 
+type pendingResult struct {
+	command string
+	data    any
+}
+
 func (a *App) writeResult(command string, data any) error {
+	if a.executing {
+		a.pending = append(a.pending, pendingResult{command, data})
+		return nil
+	}
+	return a.emitResult(command, data, false)
+}
+
+func (a *App) emitResult(command string, data any, partial bool) error {
 	mode, err := a.resolvedOutputMode()
 	if err != nil {
 		return err
@@ -56,6 +69,13 @@ func (a *App) writeResult(command string, data any) error {
 		document, err := resultDocument(command, data)
 		if err != nil {
 			return err
+		}
+		if !a.verbose && !partial {
+			document = compactDocument(document)
+		}
+		if partial {
+			document.Title = "Partial result — command did not complete"
+			document.Tone = "attention"
 		}
 		return terminal.New(a.deps.Stdout, a.deps.IsTerminal(a.deps.Stdout)).Write(document)
 	}
@@ -97,12 +117,22 @@ func writeJSON(w io.Writer, value any) error {
 }
 
 func renderFailure(w io.Writer, mode string, err error, tty bool) error {
+	return renderFailureAt(w, mode, err, tty, "")
+}
+
+func renderFailureAt(w io.Writer, mode string, err error, tty bool, stage string) error {
 	detail := classifyFailure(err)
 	if mode == "json" {
 		return writeJSON(w, failureEnvelope{SchemaVersion: "v1", Error: detail})
 	}
 	document := terminal.Document{Title: "Error [" + detail.Kind + "]", Failure: true,
 		Sections: []terminal.Section{{Text: detail.Message}}}
+	if stage != "" {
+		document.Sections = append(document.Sections, terminal.Fields("", terminal.Row("last stage", stage)))
+	}
+	if hint := recoveryHint(detail.Kind); hint != "" {
+		document.Sections = append(document.Sections, terminal.Section{Title: "Next", Text: hint})
+	}
 	if detail.ExitCode == ExitUsage {
 		document.Sections = append(document.Sections, terminal.Section{Text: "Use --help for usage."})
 	}
@@ -118,6 +148,12 @@ func classifyFailure(err error) failureDetail {
 	switch {
 	case isUsage:
 		detail.Kind, detail.ExitCode = "invalid_argument", ExitUsage
+	case errors.Is(err, updatecore.ErrRollbackFailed):
+		detail.Kind, detail.ExitCode = string(updatecore.ErrRollbackFailed), ExitAmbiguous
+	case errors.Is(err, updatecore.ErrApplyFailed):
+		detail.Kind, detail.ExitCode = string(updatecore.ErrApplyFailed), ExitUnavailable
+	case errors.Is(err, updatecore.ErrSignatureVerification), errors.Is(err, updatecore.ErrChecksumMismatch):
+		detail.Kind, detail.ExitCode = "update_verification_failed", ExitAuth
 	case errors.Is(err, domain.ErrDeviceNotExposed):
 		detail.Kind, detail.ExitCode = "device_not_exposed", ExitNotFound
 	case errors.Is(err, domain.ErrDeviceIdentityMismatch):
@@ -164,10 +200,10 @@ func classifyFailure(err error) failureDetail {
 		detail.Kind, detail.ExitCode = string(updatecore.ErrReleaseNotFound), ExitNotFound
 	case errors.Is(err, updatecore.ErrRollbackUnavailable):
 		detail.Kind, detail.ExitCode = string(updatecore.ErrRollbackUnavailable), ExitNotFound
+	case errors.Is(err, context.Canceled):
+		detail.Kind, detail.ExitCode = "canceled", ExitUnavailable
 	case errors.Is(err, updatecore.ErrReleaseResolution):
 		detail.Kind, detail.ExitCode, detail.Retryable = string(updatecore.ErrReleaseResolution), ExitUnavailable, true
-	case errors.Is(err, updatecore.ErrSignatureVerification), errors.Is(err, updatecore.ErrChecksumMismatch):
-		detail.Kind, detail.ExitCode = "update_verification_failed", ExitAuth
 	case errors.Is(err, updatecore.ErrUpdateInProgress):
 		detail.Kind, detail.ExitCode, detail.Retryable = string(updatecore.ErrUpdateInProgress), ExitConflict, true
 	case errors.Is(err, context.DeadlineExceeded):

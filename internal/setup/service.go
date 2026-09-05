@@ -10,9 +10,10 @@ import (
 	"path/filepath"
 	"slices"
 	"time"
+	"uuid"
 
 	"github.com/gofrs/flock"
-	"uuid"
+	"github.com/kaaanata/jetkvm-cli/internal/progress"
 )
 
 const lockRetryInterval = 50 * time.Millisecond
@@ -103,6 +104,7 @@ func (s *Service) Apply(ctx context.Context, plan Plan) (Receipt, error) {
 	}
 
 	for _, step := range plan.Steps {
+		progress.Stage(ctx, "Configuring "+string(plan.Target.Host)+": "+step.Name)
 		if _, runErr := s.required(ctx, step.Do); runErr != nil {
 			return s.rollbackAfterFailure(ctx, plan, receipt, runErr)
 		}
@@ -185,6 +187,7 @@ func (s *Service) Uninstall(ctx context.Context, target Target, dryRun bool) (Re
 		if observedBefore.Fingerprint != current.Fingerprint {
 			return s.failAs(receipt, ReceiptRollbackConflict, ErrRollbackConflict)
 		}
+		progress.Stage(ctx, "Removing integration: "+step.Name)
 		if _, err := s.required(ctx, step.Undo); err != nil {
 			return s.fail(receipt, err)
 		}
