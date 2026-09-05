@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.0.7](https://github.com/kaaanata/jetkvm-cli/compare/v1.0.6...v1.0.7) (2026-09-05)
+
+
+### Bug Fixes
+
+* restore confirmed MCP control and receipts ([75cb641](https://github.com/kaaanata/jetkvm-cli/commit/75cb64100794409861a7477ce20f1b90f5e134ca))
+
 ## [1.0.6](https://github.com/kaaanata/jetkvm-cli/compare/v1.0.5...v1.0.6) (2026-09-05)
 
 
