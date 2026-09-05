@@ -5,7 +5,11 @@
 
 ### Bug Fixes
 
-* restore confirmed MCP control and receipts ([75cb641](https://github.com/kaaanata/jetkvm-cli/commit/75cb64100794409861a7477ce20f1b90f5e134ca))
+* Restore confirmed screen capture and control sessions, and fix batches containing timed waits.
+* Apply one confirmation policy to CLI and MCP key aliases and action batches; support `CMD` as `COMMAND`/`META`.
+* Reject overflowing duration inputs and return clearer key, session, and input-cleanup errors.
+* Preserve durable receipts on duplicate operation lookup without reporting a fabricated batch or cleanup result.
+* Add executable-level MCP hardware acceptance covering confirmation, 1920x1080 PNG capture, bounded input, deduplication, and session closure.
 
 ## [1.0.6](https://github.com/kaaanata/jetkvm-cli/compare/v1.0.5...v1.0.6) (2026-09-05)
 
