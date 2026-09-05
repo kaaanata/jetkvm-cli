@@ -112,8 +112,6 @@ type sessionAdapter struct {
 	video          *video.Pipeline
 	videoCancel    context.CancelFunc
 	videoDone      chan struct{}
-	trackReady     chan struct{}
-	videoSSRC      uint32
 	observationsMu sync.Mutex
 	observations   []ScreenObservation
 	captured       *ScreenObservation

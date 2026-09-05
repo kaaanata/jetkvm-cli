@@ -54,7 +54,6 @@ func (s *sessionAdapter) startVideo(session *jetkvm.Session) error {
 	}
 	s.videoCancel = cancel
 	s.videoDone = make(chan struct{})
-	s.trackReady = make(chan struct{})
 	go func() {
 		defer close(s.videoDone)
 		defer pipeline.Close()
@@ -67,8 +66,6 @@ func (s *sessionAdapter) startVideo(session *jetkvm.Session) error {
 			if !ok || track.Track == nil || !strings.EqualFold(track.Track.Codec().MimeType, video.CodecH264) {
 				return
 			}
-			s.videoSSRC = uint32(track.Track.SSRC())
-			close(s.trackReady)
 			for ctx.Err() == nil {
 				if err := track.Track.SetReadDeadline(time.Now().Add(time.Second)); err != nil {
 					return
@@ -103,13 +100,13 @@ func (s *sessionAdapter) RequestPLI(ctx context.Context, generation uint64) erro
 		return context.Cause(ctx)
 	case <-s.videoDone:
 		return video.ErrVideoUnavailable
-	case <-s.trackReady:
+	default:
 	}
 	session, ok := s.protocol.(*jetkvm.Session)
 	if !ok {
 		return video.ErrVideoUnavailable
 	}
-	return session.RequestVideoKeyframe(ctx, session.Generation(), s.videoSSRC)
+	return session.RequestNegotiatedVideoKeyframe(ctx, session.Generation())
 }
 
 func (s *sessionAdapter) Observe(ctx context.Context, freshness time.Duration) (ScreenObservation, error) {

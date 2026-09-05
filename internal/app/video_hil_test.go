@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"testing"
 	"time"
@@ -74,17 +75,28 @@ func TestHILVisualCLI(t *testing.T) {
 			ctx, cancel := context.WithTimeout(t.Context(), 40*time.Second)
 			defer cancel()
 			var stdout, stderr bytes.Buffer
-			application := cli.New(cli.Dependencies{Stdout: &stdout, Stderr: &stderr, ConfigPath: configPath,
-				Loader: cli.RuntimeLoaderFunc(func(ctx context.Context, path string) (cli.Runtime, error) {
-					runtime, err := Load(ctx, path, "hil")
-					if err != nil {
-						return cli.Runtime{}, err
-					}
-					return cli.Runtime{Devices: runtime.Devices, Automation: runtime.Automation, Releaser: runtime.Automation, MCP: hilUnusedMCP{}, OutputMode: "json", Close: runtime.Close}, nil
-				}),
-			})
-			if code := application.Execute(ctx, args); code != 0 {
-				t.Fatalf("CLI exit=%d result=%s stderr=%s", code, stdout.String(), stderr.String())
+			if binary := os.Getenv("JETKVM_HIL_BINARY"); binary != "" {
+				if !filepath.IsAbs(binary) {
+					t.Fatal("JETKVM_HIL_BINARY must be an absolute executable path")
+				}
+				command := exec.CommandContext(ctx, binary, append([]string{"--config", configPath, "--output=json"}, args...)...)
+				command.Stdout, command.Stderr = &stdout, &stderr
+				if err := command.Run(); err != nil {
+					t.Fatalf("released CLI: %v result=%s stderr=%s", err, stdout.String(), stderr.String())
+				}
+			} else {
+				application := cli.New(cli.Dependencies{Stdout: &stdout, Stderr: &stderr, ConfigPath: configPath,
+					Loader: cli.RuntimeLoaderFunc(func(ctx context.Context, path string) (cli.Runtime, error) {
+						runtime, err := Load(ctx, path, "hil")
+						if err != nil {
+							return cli.Runtime{}, err
+						}
+						return cli.Runtime{Devices: runtime.Devices, Automation: runtime.Automation, Releaser: runtime.Automation, MCP: hilUnusedMCP{}, OutputMode: "json", Close: runtime.Close}, nil
+					}),
+				})
+				if code := application.Execute(ctx, args); code != 0 {
+					t.Fatalf("CLI exit=%d result=%s stderr=%s", code, stdout.String(), stderr.String())
+				}
 			}
 			var result map[string]any
 			if err := json.Unmarshal(stdout.Bytes(), &result); err != nil {
