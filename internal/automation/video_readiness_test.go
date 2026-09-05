@@ -5,7 +5,6 @@ import (
 	"encoding/json/v2"
 	"errors"
 	"testing"
-	"time"
 	"uuid"
 
 	"github.com/kaaanata/jetkvm-cli/internal/control"
