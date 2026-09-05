@@ -31,11 +31,15 @@ type pendingUnit struct {
 // Depacketizer implements RFC 6184 single-NAL, STAP-A, and FU-A packetization
 // with bounded out-of-order buffering. It is intentionally transport-neutral.
 type Depacketizer struct {
-	generation uint64
-	limits     Limits
-	pending    *pendingUnit
-	sps        []byte
-	pps        []byte
+	generation    uint64
+	limits        Limits
+	pending       *pendingUnit
+	sps           []byte
+	pps           []byte
+	lastSequence  uint16
+	lastTimestamp uint32
+	haveLast      bool
+	discontinuity bool
 }
 
 // NewDepacketizer creates a receiver fenced to one control generation.
@@ -57,6 +61,8 @@ func (d *Depacketizer) Reset(generation uint64) error {
 	d.pending = nil
 	d.sps = nil
 	d.pps = nil
+	d.haveLast = false
+	d.discontinuity = false
 	return nil
 }
 
@@ -73,9 +79,19 @@ func (d *Depacketizer) Push(packet RTPPacket) (*AccessUnit, error) {
 		return nil, ErrPacketTooLarge
 	}
 
+	// Completed timestamps and sequences fence duplicates/late packets, including wrap.
+	if d.haveLast && int32(packet.Timestamp-d.lastTimestamp) <= 0 {
+		return nil, nil
+	}
+	if d.pending != nil && int32(packet.Timestamp-d.pending.timestamp) < 0 {
+		return nil, nil
+	}
 	var priorLoss bool
 	if d.pending == nil || d.pending.timestamp != packet.Timestamp {
 		priorLoss = d.pending != nil
+		if priorLoss {
+			d.discontinuity = true
+		}
 		d.pending = &pendingUnit{
 			generation: packet.Generation,
 			timestamp:  packet.Timestamp,
@@ -89,6 +105,7 @@ func (d *Depacketizer) Push(packet RTPPacket) (*AccessUnit, error) {
 	unit.bytes += len(packet.Payload)
 	if unit.bytes > d.limits.MaxAccessUnitBytes || len(unit.packets) >= d.limits.MaxPacketsPerUnit {
 		d.pending = nil
+		d.discontinuity = true
 		return nil, ErrAccessUnitTooLarge
 	}
 	packet.Payload = bytes.Clone(packet.Payload)
@@ -111,12 +128,13 @@ func (d *Depacketizer) Push(packet RTPPacket) (*AccessUnit, error) {
 	accessUnit, err := d.assemble(unit, ordered)
 	if err != nil {
 		d.pending = nil
+		d.discontinuity = true
 		return nil, err
 	}
 	d.pending = nil
-	if priorLoss {
-		accessUnit.Discontinuity = true
-	}
+	accessUnit.Discontinuity = d.discontinuity || (d.haveLast && accessUnit.FirstSequence != d.lastSequence+1)
+	d.lastSequence, d.lastTimestamp, d.haveLast = accessUnit.LastSequence, accessUnit.RTPTime, true
+	d.discontinuity = false
 	return accessUnit, nil
 }
 
@@ -154,7 +172,7 @@ func orderedPackets(unit *pendingUnit, maxPackets int) ([]RTPPacket, bool) {
 func (d *Depacketizer) assemble(unit *pendingUnit, packets []RTPPacket) (*AccessUnit, error) {
 	var annexB []byte
 	firstReceived := packets[0].ReceivedAt
-	var hasSPS, hasPPS, keyframe bool
+	var hasSPS, hasPPS, keyframe, picture bool
 	var fragmented bool
 	var fragmentType byte
 
@@ -172,6 +190,9 @@ func (d *Depacketizer) assemble(unit *pendingUnit, packets []RTPPacket) (*Access
 			hasPPS = true
 		case naluTypeIDR:
 			keyframe = true
+			picture = true
+		case 1:
+			picture = true
 		}
 		annexB = append(annexB, annexBStartCode[:]...)
 		annexB = append(annexB, nalu...)
@@ -234,6 +255,9 @@ func (d *Depacketizer) assemble(unit *pendingUnit, packets []RTPPacket) (*Access
 			annexB = append(annexB, payload[2:]...)
 			if end {
 				fragmented = false
+				if fragmentType == 1 || fragmentType == 5 {
+					picture = true
+				}
 				if fragmentType == naluTypeIDR {
 					keyframe = true
 				}
@@ -271,7 +295,7 @@ func (d *Depacketizer) assemble(unit *pendingUnit, packets []RTPPacket) (*Access
 		Generation: unit.generation, RTPTime: unit.timestamp,
 		FirstSequence: packets[0].SequenceNumber, LastSequence: packets[len(packets)-1].SequenceNumber,
 		ReceivedAt: firstReceived, AnnexB: annexB, HasSPS: hasSPS, HasPPS: hasPPS,
-		Keyframe: keyframe, Decodable: keyframe && hasSPS && hasPPS, ParameterSetsReused: reused,
+		Keyframe: keyframe, Decodable: picture && ((keyframe && hasSPS && hasPPS) || (!keyframe && len(d.sps) > 0 && len(d.pps) > 0)), ParameterSetsReused: reused,
 	}, nil
 }
 

@@ -22,7 +22,7 @@ import (
 )
 
 type screenSession interface {
-	Observe(context.Context, time.Duration) (ScreenObservation, error)
+	Observe(context.Context, time.Duration, time.Time) (ScreenObservation, error)
 }
 
 func (s *Service) Observe(ctx context.Context, request ObserveRequest) (ScreenObservation, error) {
@@ -36,7 +36,7 @@ func (s *Service) Observe(ctx context.Context, request ObserveRequest) (ScreenOb
 			return domain.ErrCapabilityUnavailable
 		}
 		var err error
-		result, err = observer.Observe(ctx, request.Freshness)
+		result, err = observer.Observe(ctx, request.Freshness, time.Time{})
 		return err
 	})
 	if request.DisableWake || (!errors.Is(err, ErrVideoSleeping) && !errors.Is(err, ErrVideoNoSignal)) {
@@ -92,12 +92,13 @@ func (s *sessionAdapter) startVideo(session *jetkvm.Session) error {
 	}
 	s.video = pipeline
 	ctx, cancel := context.WithCancel(context.Background())
+	s.videoDone = make(chan struct{})
 	if err := pipeline.StartLive(ctx); err != nil {
+		close(s.videoDone)
 		cancel()
 		return errors.Join(err, pipeline.Close())
 	}
 	s.videoCancel = cancel
-	s.videoDone = make(chan struct{})
 	go func() {
 		defer close(s.videoDone)
 		defer pipeline.Close()
@@ -153,23 +154,28 @@ func (s *sessionAdapter) RequestPLI(ctx context.Context, generation uint64) erro
 	return session.RequestNegotiatedVideoKeyframe(ctx, session.Generation())
 }
 
-func (s *sessionAdapter) Observe(ctx context.Context, freshness time.Duration) (ScreenObservation, error) {
+func (s *sessionAdapter) Observe(ctx context.Context, freshness time.Duration, notBefore time.Time) (ScreenObservation, error) {
 	if s.video == nil {
 		return ScreenObservation{}, domain.ErrCapabilityUnavailable
 	}
-	if err := s.videoReadiness(ctx); err != nil {
-		return ScreenObservation{}, err
+	if !s.video.HasRecentFrame() {
+		if err := s.videoReadiness(ctx); err != nil {
+			return ScreenObservation{}, err
+		}
 	}
+	s.observationsMu.Lock()
+	notBefore = maxTime(notBefore, s.inputCompletedAt)
+	s.observationsMu.Unlock()
 	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
 	progress.Stage(ctx, "Waiting for a fresh decoded screen")
-	observation, err := s.video.AwaitObservation(ctx, video.ObserveRequest{Generation: s.generation, Freshness: freshness, NotBefore: time.Now()})
+	observation, err := s.video.AwaitObservation(ctx, video.ObserveRequest{Generation: s.generation, Freshness: freshness, NotBefore: notBefore})
 	if err != nil {
 		return ScreenObservation{}, err
 	}
 	var data bytes.Buffer
 	progress.Stage(ctx, "Encoding screenshot")
-	if err := png.Encode(&data, observation.Image); err != nil {
+	if err := (&png.Encoder{CompressionLevel: png.BestSpeed}).Encode(&data, observation.Image); err != nil {
 		return ScreenObservation{}, err
 	}
 	result := ScreenObservation{Observation: *observation, MIMEType: "image/png", Data: data.Bytes()}
@@ -190,7 +196,7 @@ func (s *sessionAdapter) Capture(ctx context.Context, generation uint64) (input.
 	if err := s.checkGeneration(generation); err != nil {
 		return input.Observation{}, err
 	}
-	result, err := s.Observe(ctx, 0)
+	result, err := s.Observe(ctx, 0, time.Now())
 	if err == nil {
 		s.observationsMu.Lock()
 		s.captured = &result
@@ -241,4 +247,11 @@ func (s *sessionAdapter) resolveObservation(binding *input.ObservationBinding) (
 func (s *Service) CanWake(deviceID domain.DeviceID, scope policy.Scope) bool {
 	_, err := s.authorize("jetkvm_run_actions", deviceID, scope, nil, false)
 	return err == nil
+}
+
+func maxTime(a, b time.Time) time.Time {
+	if a.Before(b) {
+		return b
+	}
+	return a
 }

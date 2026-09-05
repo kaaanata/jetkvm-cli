@@ -100,21 +100,22 @@ func (b *sendBarrier) cross(ctx context.Context) error {
 }
 
 type sessionAdapter struct {
-	deviceID       domain.DeviceID
-	generation     uint64
-	capabilities   []string
-	protocol       protocolSession
-	input          *input.Manager
-	closed         atomic.Bool
-	operationMu    sync.Mutex
-	barrier        *sendBarrier
-	neutralized    bool
-	video          *video.Pipeline
-	videoCancel    context.CancelFunc
-	videoDone      chan struct{}
-	observationsMu sync.Mutex
-	observations   []ScreenObservation
-	captured       *ScreenObservation
+	deviceID         domain.DeviceID
+	generation       uint64
+	capabilities     []string
+	protocol         protocolSession
+	input            *input.Manager
+	closed           atomic.Bool
+	operationMu      sync.Mutex
+	barrier          *sendBarrier
+	neutralized      bool
+	video            *video.Pipeline
+	videoCancel      context.CancelFunc
+	videoDone        chan struct{}
+	observationsMu   sync.Mutex
+	inputCompletedAt time.Time
+	observations     []ScreenObservation
+	captured         *ScreenObservation
 }
 
 type protocolSession interface {
@@ -169,6 +170,11 @@ func (s *sessionAdapter) RunActions(ctx context.Context, batch input.Batch, star
 	barrier := &sendBarrier{start: start}
 	s.barrier = barrier
 	receipt, err := s.input.RunActions(ctx, s.generation, batch)
+	if barrier.started.Load() {
+		s.observationsMu.Lock()
+		s.inputCompletedAt = time.Now()
+		s.observationsMu.Unlock()
+	}
 	s.barrier = nil
 	return receipt, barrier.started.Load(), err
 }
@@ -182,6 +188,11 @@ func (s *sessionAdapter) ReleaseInput(ctx context.Context, start func(context.Co
 	barrier := &sendBarrier{start: start}
 	s.barrier = barrier
 	err := s.input.Reconcile(ctx, s.generation)
+	if barrier.started.Load() {
+		s.observationsMu.Lock()
+		s.inputCompletedAt = time.Now()
+		s.observationsMu.Unlock()
+	}
 	s.barrier = nil
 	if err == nil {
 		s.neutralized = true

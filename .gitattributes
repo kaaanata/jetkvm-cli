@@ -1,0 +1,3 @@
+
+# Raw codec reference planes are binary, not line-oriented text.
+*.yuv binary

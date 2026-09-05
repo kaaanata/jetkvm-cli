@@ -1,167 +1,125 @@
-# Embedded H.264 still-frame decoder
+# Continuous embedded H.264 decoder
 
-Status: WASI IDR backend implemented; final 1080p live HIL passed with the
-5-second source-freshness default.
+Status: FFmpeg 9.0.1 H.264-only WASI reactor implemented. See the verification
+record below for the distinction between synthetic replay, hardware, and release.
 
-## Implementation and scope
+## Selection evidence
 
-`EmbeddedDecoder()` implements the existing DecoderFactory/Decoder interfaces.
-It embeds Eyevinn hi264 v0.10.0 with mp4ff v0.50.0 in a WASI command and uses
-wazero v1.12.0 on the host. The codec dependencies are MIT; attribution is in
-DECODER_LICENSES.txt and retained inside the binary. wazero is Apache-2.0.
-Sources: [hi264](https://github.com/Eyevinn/hi264/tree/v0.10.0) and
-[wazero](https://github.com/tetratelabs/wazero/tree/v1.12.0).
+The previous hi264 0.10.0 backend decoded independent IDRs only. Its upstream
+scope excludes general motion-compensated P/B pictures; retaining its instance
+would not solve that restriction.
 
-Each decode creates a fresh module and decoder, without reference-picture
-state. Compiled code is retained until Reset/Close. Stdin carries Annex-B;
-stdout carries little-endian uint32 width/height followed by exact NRGBA bytes.
-No filesystem, network, credentials, external executable, CGo or FFmpeg is
-needed at runtime. FFmpeg only generated the independent synthetic fixtures.
+Two initial WASI prototypes were built using wasi-sdk 34.0:
 
-This is an IDR snapshot decoder, not a P/B motion player. Each request must
-contain one SPS, one matching PPS and exactly one complete IDR slice, in order.
-SEI/AUD/filler NALUs are allowed. Non-IDR VCL, multiple pictures/slices, FMO,
-interlacing, transform bypass and unsupported profiles/formats are rejected.
-Baseline/Main/Extended/High are accepted only within the progressive 8-bit
-4:2:0 subset. Right/bottom cropping smaller than one macroblock is accepted;
-left/top cropping is unsupported. hi264's conversion uses VUI matrix/range
-metadata, defaulting to BT.601 limited range when unspecified.
+- OpenH264 2.6.0, commit `652bdb7719f30b52b08e506645a7322ff1b2cc6f`.
+- edge264, commit `2c2ab95d63c1ad89c5687f9e50b57cad772c871b`.
 
-## Isolation and completion
+Both produced byte-identical planar YUV for a 90-frame 1920x1080 moving P-frame
+sequence compared with FFmpeg. Including CLI startup and writing YUV, illustrative
+runs took 1.56 seconds for OpenH264 and 1.40 seconds for edge264; these are not
+production-pipeline or cross-machine benchmarks. More complex B-picture fixtures
+exposed differences: OpenH264 produced pixel differences in both its native and
+WASI builds. The edge264 prototype also failed the B-sequence comparison, with
+incomplete output; that result does not distinguish adapter issues from codec
+issues. Neither prototype is shipped or silently selected as a fallback.
 
-- The host independently parses a bounded SPS prefix before decoder allocations.
-  Parameter sets are capped at 4096 bytes; Exp-Golomb reads and scaling/POC loops
-  are bounded. Dimensions must satisfy request limits and hard 4096x2160 bounds,
-  including a bounded coded macroblock grid.
-- Input is capped at the smaller of the request limit and 8 MiB. NAL count,
-  exact RGBA output length, and 4096-byte stderr are bounded.
-- WithMemoryLimitPages(8192) imposes a firm 512 MiB linear-memory cap per module.
-  This is not a total RSS cap: compiled code and bounded host buffers are
-  additional, and independent devices have independent decoder limits.
-- WithCloseOnContextDone(true) terminates running WASM on cancellation. Fixed
-  trusted-artifact compilation is owned by the parent context and joined before
-  return; it may finish after cancellation, especially under race instrumentation.
-  The separate 10-second hostile-input execution budget starts after compilation.
-  Parent cancellation still applies throughout gate wait, compilation and decode.
-  Infinite-WASM tests verify actual execution cancellation independently.
-- Decode has no detached worker. Reset/Close cancel and join the call, then
-  release the runtime. Every call uses a new module, including after failures.
-- Two exact build-time source overlays make hi264 fail closed: exhausted CABAC
-  input traps instead of synthesizing zero bits; premature slice termination
-  fails instead of returning a partial picture. The build rejects changed
-  patch contexts and never modifies module-cache files. This adds no P/B support.
-- Traps, invalid output and unsupported inputs return decoder failures.
-  Resource isolation does not prove semantic validity of every H.264 stream.
+The selected FFmpeg reactor passes exact planar-YUV comparisons for both the
+12-frame P and B fixtures. Source and reproducible build instructions are in
+[wasmdecoder](wasmdecoder/README.md). It retains the existing single-file, CGo-free
+Go runtime and bounded WASI execution model. It does not execute an external
+FFmpeg process. Licensing and source publication are part of release preparation.
 
-## Source age and lifecycle
+## Stream and reference ownership
 
-AccessUnit.ReceivedAt is the earliest local RTP receive time belonging to its AU,
-including out-of-order arrival. Observation.CapturedAt uses the same source
-timestamp. Only Frame.DecodedAt records decoder completion. Receive time is a
-local arrival measurement, not the remote sensor's capture clock.
+A session owns one decoder reactor, one RTP receiver, and one decoder worker.
+Ingestion never waits for decoding. Complete AUs enter an ordered queue limited
+to 32 units and the configured maximum AU byte budget in total (8 MiB by default).
+An independent IDR can replace queued predecessors. Arbitrary dependent compressed
+frames cannot be dropped to select the latest display image.
 
-ObserveRequest.NotBefore requires source receipt at or after capture invocation.
-Frame Freshness defaults to 5 seconds and is measured from source receipt.
-The independently owned observation-to-input binding defaults to 30 seconds
-at the input integration boundary, allowing decode, model thinking and a
-subsequent click. It must also use source CapturedAt and honor stricter
-configured limits. The 30-second binding does not permit capture to return an
-old cache entry and does not widen the independent frame freshness requirement.
-Explicitly stricter request freshness values are always honored.
+Packet gaps, invalid assembly, or queue overload invalidate the entire reference
+chain, queued work, and in-flight publication. The worker resets reference state
+before decoding an independent recovery IDR. Decoded display images may replace
+older display images. The worker and observation waiters share one rate-limited
+PLI timestamp; recovery does not depend on an observer currently waiting.
 
-The first hardware decode took 2.157 seconds including compilation; warm decode
-took about 1.4 seconds. Subsequent live HIL under concurrent race load still
-expired a 15-second capture request with the earlier 2-second source-age limit:
-device IDR cadence and a newest complete pending IDR can consume approximately
-2 seconds before decode even starts. The 5-second default is an explicit source
-latency budget based on that evidence, separate from fixing the blocking reader.
-Await must still reject frames before NotBefore or beyond the requested source
-age. Warm decoding never resets source time. Pointer authorization must recheck
-source age when input executes.
+The depacketizer fences completed RTP sequence/timestamp identities, handles
+16-bit sequence and 32-bit timestamp wrap, ignores duplicates and late packets,
+and marks gaps between complete AUs. Intra-AU reordering remains bounded. A newer
+AU arriving while an older AU is incomplete conservatively triggers recovery;
+this is not an unlimited jitter buffer across interleaved frames.
 
-Await retries rate-limited PLIs with a timer even without RTP notifications.
-pushMu owns decoding; receiveMu owns bounded packet assembly; mu protects
-observation metadata, so Await cancellation does not wait for decoding.
-Reset/Close cancel before joining
-active decoding and fence its result. The stream owner still owns cancellation
-and joining of its receive worker.
+Every decode receives an opaque source token. Delayed or reordered output is
+resolved against its original AU, including generation, RTP time and earliest
+local receive timestamp. Output without a known token is rejected. Presentation
+must not move backwards in RTP time. Receive time is local arrival time, not a
+remote sensor clock or proof that the target application has finished responding.
 
-For a live track, call StartLive(streamContext) once and then PushLive for every
-RTP packet, stamping ReceivedAt immediately after ReadRTP. Do not use synchronous
-Push on a live reader: it stops ingestion during decoding and can make buffered
-frames stale before they are processed. The live path continuously depacketizes
-and retains only the newest complete IDR in one pending slot, in addition to
-the in-flight IDR. It never drops arbitrary packets to implement latest-frame
-selection. Pending frames do not reset source age. PLI retries are suppressed
-while decoding or a complete pending IDR already exists. Close cancels and joins
-the sole worker; Reset discards the pending AU and cancels/fences the old decode.
-Synchronous Push remains available on pipelines that have not entered live mode.
+## Observations and lifecycle
 
-Live decode failures retain their AU source timestamp and wake Await. Failures
-at or after the request's NotBefore return typed ErrDecodeFailed immediately;
-older failures cannot poison a later request. Packet loss/assembly errors remain
-transient receive errors, not decode failures. A successful decode clears the
-last decode failure.
+Ordinary observations reuse a decoded frame within the requested freshness bound.
+The default remains 5 seconds for compatibility; stricter requests are honored.
+Every observation also respects the session's most recent completed input time.
+Observe-after, batch screenshots and wake recovery retain explicit server-owned
+lower time bounds, so a cached pre-input frame cannot become post-input evidence.
+Coordinate bindings remain independently limited to 30 seconds from source time.
 
-MatchesGeometry(generation, width, height) compares a coordinate binding with
-the latest decoded frame under the metadata lock. It rejects absent/resetting/
-closed state, a different generation, or changed dimensions even within one
-generation. The input integration must invoke this check when resolving a real
-session's observation binding; compressed SPS receipt alone is not proof of a
-new decoded geometry.
+A decoded frame younger than 250 ms is sufficient readiness evidence to omit the
+two diagnostic RPCs. Otherwise firmware readiness is checked as before. This
+hint changes neither observation freshness nor input authorization. PNG uses
+BestSpeed compression. Planar pixels are copied into immutable host-owned memory;
+color conversion and PNG encoding occur only for requested observations.
 
-## Reproduction and validation boundary
+Canceling an observation cancels its wait, not the stream. Reset, lease/session
+closure and shutdown cancel and join decoder work. WASI execution retains a
+10-second per-call limit and 512 MiB linear-memory ceiling. The latter is not a
+process RSS limit; Go copies, compiled code and other devices add memory. A failed
+reactor is discarded, and no ambiguous HID action is replayed by video recovery.
 
-Run `sh scripts/build-decoder.sh`. It pins Go 1.27.0 and module versions, verifies
-checksums, applies the two overlays in a build-owned temporary source copy,
-disables CGo, and uses wasip1/wasm, trimpath, no VCS metadata and an empty build
-ID. decoder.wasm is checked in; normal builds never download a runtime decoder.
+CLI continues to open, execute and close one command-scoped control. MCP reuses
+its existing explicit handle. No daemon, second session authority, or persistent
+CLI handle is introduced.
 
-Two consecutive patched builds produced identical SHA-256:
-`1300c355790cf21a0f3a7696b407fd1972edfd29a7f528a5cd1ed72701ca6338`.
-Both host video and nested WASI-target dependency scans with
-`golang.org/x/vuln/cmd/govulncheck@v1.7.0` reported no vulnerabilities. The nested
-scan runs the analyzer as a host program with GOOS=wasip1 and GOARCH=wasm in its
-analysis environment, covering hi264/mp4ff that the root module scan omits.
+## Verification record
 
-Normal `go test ./internal/video` exercises the actual embedded decoder against
-32x32 Baseline/CAVLC and High/CABAC IDRs and an independent FFmpeg gradient PNG.
-It also covers malformed/truncated input, size and output limits, reset/reuse,
-cancellation, deliberately infinite WASM, rejected memory growth, source
-freshness, NotBefore, PLI retries and concurrent Await/Reset/Close during decode.
-FuzzValidateIDR has a normal-suite seed and supports additional bounded fuzzing.
+On the local Apple Silicon development host, three 90-frame 1920x1080 synthetic
+P-picture replay runs through the production Go/WASI adapter took 1.429–1.448 s,
+or 62.2–63.0 fps including compilation and pixel copies. First output took
+253–261 ms. Reported cumulative Go allocations were about 385 MiB per replay,
+with 35–62 MiB Go heap at the end; these figures are not process RSS measurements.
+This is a demanding moving test pattern, not a guarantee of sustained throughput
+on every supported host or across multiple devices.
 
-The opt-in TestEmbeddedDecoderLocalCapture uses JETKVM_H264_FIXTURE and optional
-JETKVM_H264_PNG. A private 11985-byte H.264 IDR decoded to 1920x1080; the operator
-confirmed the correct console visually. Initial timings were 2.157 seconds
-including compilation and 1.368 seconds warm. The fail-closed patched artifact
-was rechecked at 2.079 seconds cold and 1.356 seconds warm. Captures/screenshots
-remain ignored local files and are never public test fixtures.
+The first live MCP binary run returned 1920x1080 PNG images with continuous
+observations in 93–94 ms and source ages of 126–229 ms after local PNG validation.
+Open took 265 ms; first observation took 5.46 s, which includes cold-device/video
+readiness work and must not be represented as a warm capture. A bounded Escape
+and wait batch with post-action image took 339 ms and retained completed,
+transport-accepted, neutralized, non-retryable receipts. Deduplication and closure
+passed. Screenshots and target identity remain private.
 
-This proves one resolution and signal state. Six-platform CGO_ENABLED=0 builds
-(macOS/Linux/Windows, amd64/arm64) are delegated to CI, not locally claimed.
-Broader HIL resolution/signal-transition coverage and sustained multi-device
-memory behavior remain release validation work.
+Regression tests cover exact P/B output, immutable planes, reference queue order,
+overload recovery, whole-frame gaps, duplicate/wrapped sequence identities,
+source-time observation barriers, cancellation, generation changes and bounded
+WASM memory. Repeated race tests cover concurrent observation/reset/close.
+Hardware signal/resolution switching and simultaneous physical multi-device
+coverage remain separate from synthetic and single-fixture verification.
 
-The final current-candidate live HIL passed with the 5-second default source
-freshness. The integration owner reported successful screenshot, move, click,
-double-click, drag, scroll, and a move-plus-screenshot batch. MCP also passed
-observe at 1920x1080, an ID-only observation-bound click with an observe-after
-image at 1920x1080, and close. Total sequence time was 43.09 seconds; individual
-operations took approximately 2.5 to 7.4 seconds. These operation durations
-include work beyond decoding and are not measurements of frame source age.
+A longer 1,800-frame replay completed in 25.85 s (69.6 fps). The standalone test
+process used 24.32 s user CPU and 0.26 s system CPU over 26.51 s wall time, about
+93% of one core, with peak RSS 139,378,688 bytes (about 133 MiB). This included
+other verification load on the host; it is not an isolated laboratory benchmark.
+The complete replay allocated about 5.4 GiB cumulatively but ended with a 32 MiB
+Go heap; cumulative allocation is not retained memory.
 
-Reported receipts were completed, transport_accepted, neutralized, and
-retry_safe=false. Transport acceptance and neutralization do not by themselves
-prove the target application's semantic response. The final result supersedes
-the provisional 19.3-second sequence pass and subsequent stale-source failures
-under the earlier 2-second freshness default. It verifies the current live
-pipeline and default freshness at this hardware fixture, while the broader
-resolution and signal-transition checks above remain outstanding.
+Two further MCP runs passed warm observation at 92–94 ms and the bounded input
+plus post-action observation at 287–308 ms. A first-observation diagnostic
+reported 5.434 s total, no wake receipt, 374 ms source-to-decode latency and
+497 ms frame age after PNG validation. Most of that first-call delay precedes
+the returned AU's arrival; it must not be attributed to decoding alone.
+Read-only CLI binary HIL returned a 1920x1080 PNG and closed in 5.89 s.
 
-## Alternatives
-
-External FFmpeg violates the self-contained runtime requirement. Native
-OpenH264/platform decoders add platform build and lifecycle paths; LGPL static
-decoders add relinking/distribution obligations. The selected MIT WASI path
-provides a portable bounded execution boundary while keeping IDR scope explicit.
+Two consecutive production-script builds produced identical SHA-256
+`22395f517ccd2af6d76167807f12c265ba91009917440bacf5b6e4fc9f59100c`.
+The Grype 0.118.0 C-package SBOM scan reported zero matches against its
+2026-09-05 database. Root govulncheck reported no reachable vulnerabilities.

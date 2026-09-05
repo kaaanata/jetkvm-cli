@@ -28,6 +28,10 @@ func TestBuiltReleaseArchiveCompatibility(t *testing.T) {
 	if err := verifyArchiveChecksum("decoder.sbom.json", sbom, manifest); err != nil {
 		t.Fatal(err)
 	}
+	source := readCompatFile(t, "../../.cache/release-metadata/decoder-source.tar.gz")
+	if err := verifyArchiveChecksum("decoder-source.tar.gz", source, manifest); err != nil {
+		t.Fatal(err)
+	}
 	var document struct {
 		Packages []struct {
 			Name    string `json:"name"`
@@ -37,7 +41,7 @@ func TestBuiltReleaseArchiveCompatibility(t *testing.T) {
 	if err := json.Unmarshal(sbom, &document); err != nil {
 		t.Fatal(err)
 	}
-	for _, dependency := range []struct{ name, version string }{{"github.com/Eyevinn/hi264", "v0.10.0"}, {"github.com/Eyevinn/mp4ff", "v0.50.0"}} {
+	for _, dependency := range []struct{ name, version string }{{"ffmpeg", "9.0.1"}} {
 		found := false
 		for _, pkg := range document.Packages {
 			if pkg.Name == dependency.name && pkg.Version == dependency.version {
@@ -133,7 +137,7 @@ func TestBuiltReleaseArchiveCompatibility(t *testing.T) {
 				}
 			}
 			if !bytes.Contains(notice, licenses) {
-				t.Fatal("archive NOTICE omits full codec MIT notices")
+				t.Fatal("archive NOTICE omits full codec license")
 			}
 			builds, err := filepath.Glob(filepath.Join(dist, "jetkvm_"+platform+"*", executable))
 			if err != nil || len(builds) != 1 {

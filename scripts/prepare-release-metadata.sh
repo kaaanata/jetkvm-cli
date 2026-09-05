@@ -2,8 +2,8 @@
 set -eu
 output_dir=${1:?output directory required}
 mkdir -p "$output_dir"
-# Preserve complete upstream MIT grants without adding archive entries.
+# Preserve the complete codec license without changing the four-file archive.
 awk '1' NOTICE internal/video/DECODER_LICENSES.txt > "$output_dir/NOTICE"
-# The WASI binary is opaque to archive scanners: scan its pinned module graph
-# independently, and publish the document outside the legacy four-file archive.
-syft scan dir:internal/video/wasmdecoder --output "spdx-json=$output_dir/decoder.sbom.json"
+python3 scripts/decoder-metadata.py "$output_dir/decoder.sbom.json"
+# Publish exact corresponding codec source and build material as a separate asset.
+tar -czf "$output_dir/decoder-source.tar.gz" internal/video/wasmdecoder scripts/build-decoder.sh scripts/setup-wasi-sdk.sh internal/video/DECODER_LICENSES.txt

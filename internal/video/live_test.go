@@ -76,7 +76,10 @@ func TestLiveKeepsOnlyNewestCompleteIDR(t *testing.T) {
 		t.Fatal(err)
 	}
 	p.mu.Lock()
-	pending := p.pendingIDR
+	var pending *AccessUnit
+	if len(p.pending) > 0 {
+		pending = p.pending[0]
+	}
 	p.mu.Unlock()
 	if pending == nil || pending.RTPTime != 4 {
 		t.Fatalf("pending=%+v", pending)
@@ -86,7 +89,7 @@ func TestLiveKeepsOnlyNewestCompleteIDR(t *testing.T) {
 	if _, err := p.AwaitObservation(ctx, ObserveRequest{Generation: 1}); !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatal(err)
 	}
-	if pli.calls.Load() != 0 {
+	if pli.calls.Load() > 1 {
 		t.Fatal("PLI flooded while a complete IDR was already decoding")
 	}
 	d.release <- struct{}{}
@@ -135,7 +138,7 @@ func TestLiveResetAndCloseJoinWorker(t *testing.T) {
 		t.Fatal("Reset did not cancel live decoder")
 	}
 	p.mu.Lock()
-	pending, latest := p.pendingIDR, p.latest
+	pending, latest := p.pending, p.latest
 	p.mu.Unlock()
 	if pending != nil || latest != nil {
 		t.Fatal("Reset retained old generation")

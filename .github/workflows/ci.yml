@@ -41,12 +41,19 @@ jobs:
 
       - name: Reproduce embedded decoder
         run: |
-          sh scripts/build-decoder.sh
+          sh scripts/setup-wasi-sdk.sh "$RUNNER_TEMP/wasi-sdk"
+          WASI_SDK_PATH="$RUNNER_TEMP/wasi-sdk/wasi-sdk-34.0-x86_64-linux" sh scripts/build-decoder.sh
           git diff --exit-code -- internal/video/decoder.wasm
 
       - name: Scan embedded decoder dependencies
-        working-directory: internal/video/wasmdecoder
-        run: go run golang.org/x/vuln/cmd/govulncheck@v1.7.0 ./...
+        run: python3 scripts/decoder-metadata.py .cache/decoder.sbom.json
+
+      - name: Scan C codec SBOM
+        uses: anchore/scan-action@v7
+        with:
+          sbom: .cache/decoder.sbom.json
+          fail-build: true
+          severity-cutoff: low
 
       - name: Test
         run: go test ./...

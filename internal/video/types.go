@@ -99,6 +99,7 @@ type RTPPacket struct {
 
 // AccessUnit is one complete Annex-B H.264 access unit.
 type AccessUnit struct {
+	chain               uint64 // Pipeline-owned reference-chain epoch.
 	Generation          uint64
 	RTPTime             uint32
 	FirstSequence       uint16
@@ -116,13 +117,16 @@ type AccessUnit struct {
 // DecodeRequest carries immutable compressed bytes and mandatory allocation
 // bounds into a decoder backend.
 type DecodeRequest struct {
-	AccessUnit AccessUnit
-	Limits     Limits
+	AccessUnit  AccessUnit
+	EndOfStream bool // Explicit finite-fixture drain; never set by live ingestion.
+	Limits      Limits
 }
 
 // DecodedFrame is the decoder-independent image result.
 type DecodedFrame struct {
-	Image image.Image
+	Image   image.Image
+	Source  *AccessUnit // Original input associated with reordered output.
+	Pending bool        // Input accepted, decoder needs another picture before output.
 }
 
 // FrameMetadata identifies exactly which stateful stream produced an image.

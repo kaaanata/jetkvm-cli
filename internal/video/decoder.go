@@ -20,6 +20,6 @@ type DecoderFactory interface {
 	New() (Decoder, error)
 }
 
-// EmbeddedDecoder decodes fresh, complete single-slice SPS/PPS/IDR access units
-// in a bounded WASI sandbox. It is not a motion-video P/B frame decoder.
+// EmbeddedDecoder continuously decodes H.264 I/P/B pictures in a bounded WASI
+// reactor, with reference state owned by one video session.
 func EmbeddedDecoder() DecoderFactory { return embeddedDecoderFactory{} }

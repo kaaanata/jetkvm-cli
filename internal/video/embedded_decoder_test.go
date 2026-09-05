@@ -16,7 +16,7 @@ func fixtureRequest(t *testing.T, name string) DecodeRequest {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return DecodeRequest{AccessUnit: AccessUnit{AnnexB: data, Keyframe: true, Decodable: true}}
+	return DecodeRequest{EndOfStream: true, AccessUnit: AccessUnit{AnnexB: data, Keyframe: true, Decodable: true}}
 }
 
 func TestEmbeddedDecoderRealIDR(t *testing.T) {
@@ -154,14 +154,15 @@ func TestEmbeddedDecoderCancellation(t *testing.T) {
 	}
 }
 
-func FuzzValidateIDR(f *testing.F) {
+func FuzzValidateAccessUnit(f *testing.F) {
 	data, err := os.ReadFile("testdata/red-high.h264")
 	if err != nil {
 		f.Fatal(err)
 	}
 	f.Add(data)
 	f.Fuzz(func(t *testing.T, data []byte) {
-		_, _, _ = validateIDR(DecodeRequest{AccessUnit: AccessUnit{AnnexB: data}})
+		d := &embeddedDecoder{}
+		_ = d.validate(DecodeRequest{AccessUnit: AccessUnit{AnnexB: data, Keyframe: true}})
 	})
 }
 
@@ -174,7 +175,7 @@ func TestEmbeddedDecoderTruncatedCABAC(t *testing.T) {
 		t.Fatal("missing IDR")
 	}
 	r.AccessUnit.AnnexB = r.AccessUnit.AnnexB[:idx+12]
-	if _, _, err := validateIDR(r); err != nil {
+	if err := d.(*embeddedDecoder).validate(r); err != nil {
 		t.Fatalf("test must reach sandbox: %v", err)
 	}
 	if _, err := d.Decode(t.Context(), r); !errors.Is(err, ErrDecodeFailed) {

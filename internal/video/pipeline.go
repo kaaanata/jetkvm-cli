@@ -33,7 +33,11 @@ type Pipeline struct {
 	liveCancel   context.CancelFunc
 	liveDone     chan struct{}
 	liveWake     chan struct{}
-	pendingIDR   *AccessUnit
+	pending      []*AccessUnit
+	pendingBytes int
+	chain        uint64
+	synced       bool
+	decoderChain uint64
 	liveError    error
 	liveErrorAt  time.Time
 	deviceID     string
@@ -64,11 +68,11 @@ func NewPipeline(deviceID string, generation uint64, limits Limits, decoder Deco
 	return &Pipeline{
 		deviceID: deviceID, generation: generation, limits: limits,
 		depacketizer: depacketizer, decoder: decoder, requester: requester,
-		notify: make(chan struct{}), now: time.Now, newID: observationID,
+		chain: 1, decoderChain: 1, notify: make(chan struct{}), now: time.Now, newID: observationID,
 	}, nil
 }
 
-// Push receives one RTP packet. It publishes only successfully decoded IDR
+// Push receives one RTP packet. It publishes only successfully decoded picture
 // observations; compressed-frame receipt alone never becomes an observation.
 func (p *Pipeline) Push(ctx context.Context, packet RTPPacket) (*Observation, error) {
 	p.pushMu.Lock()
@@ -103,20 +107,52 @@ func (p *Pipeline) receive(ctx context.Context, packet RTPPacket, live bool) (*A
 	}
 	accessUnit, err := p.depacketizer.Push(packet)
 	if err != nil {
+		if !errors.Is(err, ErrGenerationMismatch) {
+			p.breakChain()
+		}
 		return nil, err
 	}
 	if accessUnit == nil {
 		return nil, nil
 	}
-	if !accessUnit.Keyframe || !accessUnit.Decodable {
+	if accessUnit.Discontinuity {
+		p.breakChain()
+	}
+	if !accessUnit.Decodable {
 		return nil, ErrVideoUnavailable
 	}
+	if accessUnit.Keyframe {
+		// An IDR is an independent recovery point; queued predecessors can be discarded.
+		p.pending = nil
+		p.pendingBytes = 0
+		p.synced = true
+	} else if !p.synced {
+		return nil, ErrVideoUnavailable
+	}
+	accessUnit.chain = p.chain
 	if live {
-		// Replace only complete IDRs, never drop arbitrary packets from an AU.
-		p.pendingIDR = accessUnit
+		if len(p.pending) >= 32 || p.pendingBytes+len(accessUnit.AnnexB) > p.limits.MaxAccessUnitBytes {
+			p.breakChain()
+			return nil, ErrVideoUnavailable
+		}
+		p.pending = append(p.pending, accessUnit)
+		p.pendingBytes += len(accessUnit.AnnexB)
 		p.wakeLive()
 	}
 	return accessUnit, nil
+}
+
+// breakChain requires mu. Loss/overload invalidates queued and in-flight output.
+// Only a complete IDR may reestablish references. The sole decoder worker resets.
+func (p *Pipeline) breakChain() {
+	p.chain++
+	p.synced = false
+	p.pending = nil
+	p.pendingBytes = 0
+	p.latest = nil
+	close(p.notify)
+	p.notify = make(chan struct{})
+	p.wakeLive()
 }
 
 // decodeUnit is called with pushMu held, outside the receive lock.
@@ -126,21 +162,28 @@ func (p *Pipeline) decodeUnit(ctx context.Context, accessUnit *AccessUnit) (*Obs
 		p.mu.Unlock()
 		return nil, ErrPipelineClosed
 	}
-	if p.resetting || accessUnit.Generation != p.generation {
+	if p.resetting || accessUnit.Generation != p.generation || (accessUnit.chain != 0 && accessUnit.chain != p.chain) {
 		p.mu.Unlock()
 		return nil, ErrGenerationMismatch
 	}
+	chain := p.chain
 	decodeCtx, cancel := context.WithCancel(ctx)
 	p.decodeCancel = cancel
 	p.mu.Unlock()
 	defer func() { cancel(); p.mu.Lock(); p.decodeCancel = nil; p.mu.Unlock() }()
+	if p.decoderChain != chain {
+		if err := p.decoder.Reset(); err != nil {
+			return nil, err
+		}
+		p.decoderChain = chain
+	}
 	decoded, err := p.decoder.Decode(decodeCtx, DecodeRequest{AccessUnit: *accessUnit, Limits: p.limits})
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	if p.closed {
 		return nil, ErrPipelineClosed
 	}
-	if p.resetting || accessUnit.Generation != p.generation {
+	if p.resetting || accessUnit.Generation != p.generation || chain != p.chain {
 		return nil, ErrGenerationMismatch
 	}
 	if err != nil {
@@ -148,6 +191,15 @@ func (p *Pipeline) decodeUnit(ctx context.Context, accessUnit *AccessUnit) (*Obs
 			return nil, contextErr
 		}
 		return nil, fmt.Errorf("%w: %w", ErrDecodeFailed, err)
+	}
+	if decoded.Pending {
+		return nil, nil
+	}
+	if decoded.Source != nil {
+		accessUnit = decoded.Source
+	}
+	if accessUnit.Generation != p.generation {
+		return nil, ErrGenerationMismatch
 	}
 	if decoded.Image == nil {
 		return nil, ErrDecodeFailed
@@ -171,6 +223,9 @@ func (p *Pipeline) decodeUnit(ctx context.Context, accessUnit *AccessUnit) (*Obs
 			Codec: CodecH264, Keyframe: accessUnit.Keyframe, Discontinuity: accessUnit.Discontinuity,
 		},
 		Image: decoded.Image,
+	}
+	if p.latest != nil && int32(observation.Frame.RTPTime-p.latest.Frame.RTPTime) < 0 {
+		return nil, nil
 	}
 	p.latest = observation
 	close(p.notify)
@@ -221,7 +276,7 @@ func (p *Pipeline) AwaitObservation(ctx context.Context, request ObserveRequest)
 			return nil, err
 		}
 		notify := p.notify
-		shouldPLI := p.requester != nil && (!p.live || (p.decodeCancel == nil && p.pendingIDR == nil)) && (p.lastPLI.IsZero() || now.Sub(p.lastPLI) >= p.limits.MinPLIInterval)
+		shouldPLI := p.requester != nil && (!p.live || (p.decodeCancel == nil && len(p.pending) == 0 && (!p.synced || !hadFrame || now.Sub(p.latest.Frame.ReceivedAt) > freshness))) && (p.lastPLI.IsZero() || now.Sub(p.lastPLI) >= p.limits.MinPLIInterval)
 		if shouldPLI {
 			p.lastPLI = now
 		}
@@ -287,7 +342,7 @@ func (p *Pipeline) Reset(generation uint64) error {
 	}
 	p.resetting = true
 	p.latest = nil
-	p.pendingIDR = nil
+	p.breakChain()
 	p.liveError = nil
 	p.liveErrorAt = time.Time{}
 	if p.decodeCancel != nil {
@@ -325,7 +380,8 @@ func (p *Pipeline) Close() error {
 		return nil
 	}
 	p.closed = true
-	p.pendingIDR = nil
+	p.pending = nil
+	p.pendingBytes = 0
 	if p.liveCancel != nil {
 		p.liveCancel()
 	}
@@ -375,4 +431,11 @@ func observationID() (string, error) {
 		return "", err
 	}
 	return "obs_" + hex.EncodeToString(random[:]), nil
+}
+
+// HasRecentFrame is a readiness hint, never an observation or input authority.
+func (p *Pipeline) HasRecentFrame() bool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return !p.closed && !p.resetting && p.latest != nil && p.now().Sub(p.latest.CapturedAt) >= 0 && p.now().Sub(p.latest.CapturedAt) <= 250*time.Millisecond
 }

@@ -7,6 +7,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"github.com/tetratelabs/wazero/api"
 	"image"
 	"io"
 	"sync"
@@ -14,7 +15,6 @@ import (
 
 	"github.com/tetratelabs/wazero"
 	"github.com/tetratelabs/wazero/imports/wasi_snapshot_preview1"
-	"github.com/tetratelabs/wazero/sys"
 )
 
 //go:embed decoder.wasm
@@ -25,7 +25,7 @@ var decoderWASM []byte
 //go:embed DECODER_LICENSES.txt
 var decoderLicenses string
 
-const decoderName = "hi264-v0.10.0-wasi"
+const decoderName = "ffmpeg-9.0.1-h264-wasi"
 const decoderMemoryPages = 8192 // 512 MiB hard linear-memory limit per instance.
 const decoderTimeout = 10 * time.Second
 
@@ -44,12 +44,18 @@ func (embeddedDecoderFactory) New() (Decoder, error) {
 }
 
 type embeddedDecoder struct {
-	gate     chan struct{}
-	mu       sync.Mutex
-	closed   bool
-	cancel   context.CancelFunc
-	runtime  wazero.Runtime
-	compiled wazero.CompiledModule
+	drained       bool
+	gate          chan struct{}
+	mu            sync.Mutex
+	closed        bool
+	cancel        context.CancelFunc
+	runtime       wazero.Runtime
+	compiled      wazero.CompiledModule
+	module        api.Module
+	serial        uint64
+	sources       map[uint64]AccessUnit
+	width, height int
+	color         streamColor
 }
 
 func (*embeddedDecoder) Name() string { return decoderName }
@@ -76,10 +82,14 @@ func (d *embeddedDecoder) Decode(parent context.Context, req DecodeRequest) (Dec
 	if err := ctx.Err(); err != nil {
 		return DecodedFrame{}, err
 	}
-	w, h, err := validateIDR(req)
-	if err != nil {
+	if d.drained && len(req.AccessUnit.AnnexB) > 0 {
+		d.dropModule()
+	}
+	if err := d.validate(req); err != nil {
 		return DecodedFrame{}, err
 	}
+	var err error
+
 	if d.runtime == nil {
 		d.runtime = wazero.NewRuntimeWithConfig(ctx, decoderRuntimeConfig())
 		if _, err := wasi_snapshot_preview1.Instantiate(ctx, d.runtime); err != nil {
@@ -101,32 +111,115 @@ func (d *embeddedDecoder) Decode(parent context.Context, req DecodeRequest) (Dec
 	}
 	ctx, executionCancel := context.WithTimeout(ctx, decoderTimeout)
 	defer executionCancel()
-	// Allocate only after the independently parsed SPS has passed all bounds.
-	out := boundedOutput{max: 8 + 4*w*h}
-	stderr := boundedOutput{max: 4096}
-	mod, err := d.runtime.InstantiateModule(ctx, d.compiled, wazero.NewModuleConfig().
-		WithName("").WithStdin(bytes.NewReader(req.AccessUnit.AnnexB)).WithStdout(&out).WithStderr(&stderr))
-	if mod != nil {
-		_ = mod.Close(context.Background())
+	if d.module == nil || d.module.IsClosed() {
+		d.module, err = d.runtime.InstantiateModule(ctx, d.compiled, wazero.NewModuleConfig().WithName("").WithStartFunctions("_initialize", "_start"))
+		if err != nil {
+			d.dropModule()
+			if ctx.Err() != nil {
+				return DecodedFrame{}, ctx.Err()
+			}
+			return DecodedFrame{}, fmt.Errorf("%w: instantiate: %v", ErrDecodeFailed, err)
+		}
 	}
-	if ctx.Err() != nil {
-		return DecodedFrame{}, ctx.Err()
+	fail := func(err error) (DecodedFrame, error) {
+		d.dropModule()
+		if ctx.Err() != nil {
+			return DecodedFrame{}, ctx.Err()
+		}
+		return DecodedFrame{}, fmt.Errorf("%w: %w", ErrDecodeFailed, err)
 	}
-	if exit, ok := errors.AsType[*sys.ExitError](err); ok && exit.ExitCode() == 0 {
-		err = nil
+	call := func(name string, args ...uint64) (uint64, error) {
+		f := d.module.ExportedFunction(name)
+		if f == nil {
+			return 0, fmt.Errorf("missing decoder export %s", name)
+		}
+		r, e := f.Call(ctx, args...)
+		if e != nil {
+			return 0, e
+		}
+		return r[0], nil
 	}
+	ptr, err := call("input_ptr")
 	if err != nil {
-		return DecodedFrame{}, fmt.Errorf("%w: WASI execution: %v", ErrDecodeFailed, err)
+		return fail(err)
 	}
-	data := out.buf.Bytes()
-	if len(data) != out.max || int(binary.LittleEndian.Uint32(data[:4])) != w || int(binary.LittleEndian.Uint32(data[4:8])) != h {
-		return DecodedFrame{}, fmt.Errorf("%w: invalid RGBA receipt", ErrDecodeFailed)
+	if !d.module.Memory().Write(uint32(ptr), req.AccessUnit.AnnexB) {
+		return fail(errors.New("input bounds"))
 	}
-	return DecodedFrame{Image: &image.NRGBA{Pix: data[8:], Stride: 4 * w, Rect: image.Rect(0, 0, w, h)}}, nil
+	d.serial++
+	if d.sources == nil {
+		d.sources = make(map[uint64]AccessUnit)
+	}
+	source := req.AccessUnit
+	source.AnnexB = nil
+	if len(req.AccessUnit.AnnexB) > 0 {
+		d.sources[d.serial] = source
+	}
+	if len(d.sources) > 32 {
+		return fail(errors.New("decoder output backlog"))
+	}
+	var drain uint64
+	if req.EndOfStream {
+		drain = 1
+		d.drained = true
+	}
+	status, err := call("decode", uint64(len(req.AccessUnit.AnnexB)), d.serial, drain)
+	if err != nil {
+		return fail(err)
+	}
+	if int32(status) != 0 {
+		return fail(fmt.Errorf("codec status %d", int32(status)))
+	}
+	ptr, err = call("output_ptr")
+	if err != nil {
+		return fail(err)
+	}
+	header, ok := d.module.Memory().Read(uint32(ptr), 36)
+	if !ok {
+		return fail(errors.New("output bounds"))
+	}
+	word := func(i int) uint32 { return binary.LittleEndian.Uint32(header[i*4:]) }
+	w, h := int(word(0)), int(word(1))
+	if w == 0 {
+		return DecodedFrame{Pending: true}, nil
+	}
+	if _, _, err := boundedDimensions(image.Rect(0, 0, w, h), req.Limits.withDefaults()); err != nil {
+		return fail(err)
+	}
+	if w != d.width || h != d.height {
+		return fail(errors.New("unannounced geometry change"))
+	}
+	token := uint64(word(7)) | uint64(word(8))<<32
+	src, ok := d.sources[token]
+	if !ok {
+		return fail(errors.New("unknown output source"))
+	}
+	delete(d.sources, token)
+	img := &streamImage{rect: image.Rect(0, 0, w, h), color: d.color}
+	for i := range 3 {
+		pw, ph := w, h
+		stride := int(word(2))
+		if i > 0 {
+			pw, ph = (w+1)/2, (h+1)/2
+			stride = int(word(3))
+		}
+		if stride < pw || stride > 16384 {
+			return fail(errors.New("invalid plane stride"))
+		}
+		plane, ok := d.module.Memory().Read(word(4+i), uint32((ph-1)*stride+pw))
+		if !ok {
+			return fail(errors.New("invalid plane bounds"))
+		}
+		img.planes[i] = make([]byte, pw*ph)
+		for y := range ph {
+			copy(img.planes[i][y*pw:(y+1)*pw], plane[y*stride:y*stride+pw])
+		}
+	}
+	return DecodedFrame{Image: img, Source: &src}, nil
 }
 
 // Reset/Close cancel and join the current execution; there is no detached decoder
-// worker. Each Decode already uses a fresh module with no reference-picture state.
+// worker. Reset discards reference pictures while retaining compiled trusted code.
 func (d *embeddedDecoder) Reset() error { return d.stop(false) }
 func (d *embeddedDecoder) Close() error { return d.stop(true) }
 func (d *embeddedDecoder) stop(close bool) error {
@@ -140,10 +233,25 @@ func (d *embeddedDecoder) stop(close bool) error {
 	d.mu.Unlock()
 	d.gate <- struct{}{}
 	defer func() { <-d.gate }()
-	d.closeRuntime()
+	if close {
+		d.closeRuntime()
+	} else {
+		d.dropModule()
+	}
 	return nil
 }
+func (d *embeddedDecoder) dropModule() {
+	if d.module != nil {
+		_ = d.module.Close(context.Background())
+	}
+	d.module = nil
+	d.drained = false
+	d.sources = nil
+	d.width, d.height = 0, 0
+	d.color = streamColor{}
+}
 func (d *embeddedDecoder) closeRuntime() {
+	d.dropModule()
 	if d.runtime != nil {
 		_ = d.runtime.Close(context.Background())
 	}
