@@ -1,5 +1,12 @@
 # Project Notes
 
+- Device onboarding and supported settings updates share `internal/onboarding` across CLI and MCP. Missing configuration starts a restricted MCP bootstrap; never prompt on MCP stdin, accept device passwords as tool arguments, or require users to construct config JSON or hardware IDs. The loopback browser form owns human credential entry and OS-keyring storage.
+- `setup device` and first-use interactive `devices list` guide enrollment; `config show` and `config set` provide credential-free reads and revision-bound changes. New configurations allow the non-device-scoped `setup` toolset. Existing explicit policy ceilings remain authoritative, including for CLI settings writes.
+- MCP exposes `jetkvm_setup`, `jetkvm_setup_status`, `jetkvm_get_config`, and `jetkvm_update_config`. Settings proposals bind an exact revision and server-owned before/after values; browser approvals cannot alter the proposed patch. Administrative tools never open WebRTC or send HID.
+- `app.MCPHost` owns bootstrap, configuration revision reconciliation, handler publication, and runtime retirement. Join in-flight calls and require actor quiescence before activation; preserve cleanup access while an external CLI change is pending. Do not force-close active controls, ask for an MCP restart, introduce a competing file watcher, or serialize ordinary calls across independent devices.
+- Settings updates currently cover output defaults, explicit global input enablement, device exposure/input/takeover permission, and control lifetimes. Stable identity/route bindings, TLS pins, credentials, power permissions, administrative policy, and confirmation requirements are not generic mutable settings.
+- Enrollment is an atomic, private-file, cross-process-locked commit. Settings changes use the same writer plus an expected-revision check. Keep old credentials intact unless ownership authorizes deletion; never delete a newly owned credential after its configuration has committed, even if later runtime activation fails.
+
 - Release signing pins Cosign 3 and verifies its output with the production Go updater verifier before upload. A signed release must be consumable by the installed updater, not merely accepted by the signing CLI.
 
 - Codex MCP readback includes plugin-provided servers and nests commands under `transport`; setup must distinguish installed plugins from available catalog entries. Reinstall updated Codex plugins with the host-native `plugin add` command.

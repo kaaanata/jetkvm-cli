@@ -30,13 +30,15 @@ import (
 
 // Runtime is the one composition root shared by CLI commands and MCP tools.
 type Runtime struct {
-	Config       config.Config
-	Devices      domain.DeviceService
-	MCP          *mcpserver.Server
-	Policy       *policy.Compiled
-	Store        *store.Store
-	Automation   *AutomationService
-	Confirmation *confirmation.Authority
+	Config         config.Config
+	ConfigRevision string
+	Devices        domain.DeviceService
+	MCP            *mcpserver.Server
+	Policy         *policy.Compiled
+	Store          *store.Store
+	Automation     *AutomationService
+	Confirmation   *confirmation.Authority
+	registry       *control.Registry
 
 	closeOnce sync.Once
 	closeErr  error
@@ -47,7 +49,7 @@ const runtimeDrainTimeout = 10 * time.Second
 // Load validates the complete configuration and constructs all authoritative
 // services before publishing the runtime to any command or MCP handler.
 func Load(ctx context.Context, path, version string) (_ *Runtime, err error) {
-	cfg, err := config.Load(path)
+	cfg, revision, err := config.LoadSnapshot(path)
 	if err != nil {
 		return nil, err
 	}
@@ -182,13 +184,15 @@ func Load(ctx context.Context, path, version string) (_ *Runtime, err error) {
 		return nil, err
 	}
 	return &Runtime{
-		Config:       cfg,
-		Devices:      authorized,
-		MCP:          mcp,
-		Policy:       compiledPolicy,
-		Store:        database,
-		Automation:   applicationAutomation,
-		Confirmation: confirmationAuthority,
+		Config:         cfg,
+		ConfigRevision: revision,
+		Devices:        authorized,
+		MCP:            mcp,
+		Policy:         compiledPolicy,
+		Store:          database,
+		Automation:     applicationAutomation,
+		Confirmation:   confirmationAuthority,
+		registry:       registry,
 	}, nil
 }
 

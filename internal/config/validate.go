@@ -12,7 +12,8 @@ import (
 	"time"
 )
 
-var knownToolsets = []string{"observe", "video", "input", "power", "media"}
+var knownToolsets = []string{"observe", "video", "input", "power", "media", "setup"}
+var knownDevicePermissions = []string{"observe", "video", "input", "power", "media"}
 
 func (c Config) Validate() error {
 	var errs []error
@@ -78,7 +79,7 @@ func (c DeviceConfig) validate(alias string) error {
 		errs = append(errs, fmt.Errorf("device %q: %w", alias, err))
 	}
 	errs = append(errs,
-		validateSelection("device "+alias+" permissions", Selection{Allow: c.Permissions}, knownToolsets),
+		validateSelection("device "+alias+" permissions", Selection{Allow: c.Permissions}, knownDevicePermissions),
 		c.Credentials.validate(alias),
 		c.TLS.validate(alias, origin),
 		c.Session.validate(alias),

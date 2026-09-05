@@ -132,7 +132,7 @@ func Default() Config {
 		Version:   CurrentVersion,
 		Transport: TransportConfig{Type: TransportStdio},
 		Output:    OutputConfig{Default: OutputAuto},
-		Toolsets:  Selection{Allow: []string{"observe", "video"}},
+		Toolsets:  Selection{Allow: []string{"observe", "video", "setup"}},
 		Devices:   make(map[string]DeviceConfig),
 		Retention: RetentionConfig{
 			OperationReceipts:   Duration{30 * 24 * time.Hour},

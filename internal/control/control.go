@@ -330,6 +330,34 @@ func (r *Registry) performDrain() {
 
 func (r *Registry) State() TransportState { return r.transportState() }
 
+// Quiescent queries actor-owned state. The caller must exclude new operations
+// until its reconfiguration is complete; this is not a substitute for that gate.
+func (r *Registry) Quiescent(ctx context.Context) (bool, error) {
+	r.mu.Lock()
+	actors := make([]*actor, 0, len(r.actors))
+	for _, actor := range r.actors {
+		actors = append(actors, actor)
+	}
+	r.mu.Unlock()
+	for _, actor := range actors {
+		result := make(chan bool, 1)
+		if err := actor.submit(ctx, func(state *actorState) {
+			result <- state.session == nil && state.lock == nil && state.current == nil && (state.sessionState == SessionAbsent || state.sessionState == SessionClosed)
+		}); err != nil {
+			return false, err
+		}
+		select {
+		case quiet := <-result:
+			if !quiet {
+				return false, nil
+			}
+		case <-ctx.Done():
+			return false, context.Cause(ctx)
+		}
+	}
+	return true, nil
+}
+
 func (r *Registry) transportState() TransportState {
 	switch r.state.Load() {
 	case registryRunning:

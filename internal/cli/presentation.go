@@ -10,6 +10,7 @@ import (
 	"github.com/kaaanata/jetkvm-cli/internal/automation"
 	"github.com/kaaanata/jetkvm-cli/internal/buildinfo"
 	"github.com/kaaanata/jetkvm-cli/internal/domain"
+	"github.com/kaaanata/jetkvm-cli/internal/onboarding"
 	setupcore "github.com/kaaanata/jetkvm-cli/internal/setup"
 	"github.com/kaaanata/jetkvm-cli/internal/terminal"
 	updatecore "github.com/kaaanata/jetkvm-cli/internal/update"
@@ -23,6 +24,20 @@ func resultDocument(command string, data any) (terminal.Document, error) {
 	d := terminal.Document{Title: "jetkvm " + strings.ReplaceAll(command, ".", " ")}
 	row, fields := terminal.Row, terminal.Fields
 	switch v := data.(type) {
+	case onboarding.Receipt:
+		if v.Status == "updated" {
+			d.Title, d.Tone = "Settings saved", "success"
+			d.Sections = append(d.Sections, fields("Configuration", row("revision", v.Revision)), terminal.Section{Text: "New commands use these settings. Active MCP servers reconcile them before the next operation; existing controls must be closed before activation."})
+			break
+		}
+		d.Title, d.Tone = "JetKVM connected", "success"
+		d.Sections = append(d.Sections, fields("Device", row("name", v.Name), row("address", v.Origin)), terminal.Section{Text: "Ask your agent to inspect the device, or run jetkvm devices list. To add the agent integration, run jetkvm setup codex or jetkvm setup claude-code."})
+	case onboarding.Settings:
+		d.Title = "JetKVM settings"
+		d.Sections = append(d.Sections, fields("Defaults", row("output", v.Output), row("input enabled", v.InputEnabled), row("revision", v.Revision)))
+		for _, device := range v.Devices {
+			d.Sections = append(d.Sections, fields(device.Name, row("address", device.Origin), row("device ID", device.DeviceID), row("exposed", device.Exposed), row("permissions", strings.Join(device.Permissions, ", ")), row("takeover allowed", device.TakeoverAllowed), row("idle timeout", device.IdleTimeout), row("absolute lifetime", device.AbsoluteLifetime)))
+		}
 	case buildinfo.Info:
 		d.Title = "jetkvm " + v.Version
 		d.Sections = append(d.Sections, fields("Build", row("commit", v.Commit), row("built", v.Date), row("runtime", v.Go+" "+v.OS+"/"+v.Arch)))
@@ -314,7 +329,7 @@ func (a *App) writeHelp(cmd *cobra.Command, output io.Writer) error {
 				group = 1
 			case "setup", "mcp", "cloud":
 				group = 2
-			case "update", "version", "completion", "help":
+			case "config", "update", "version", "completion", "help":
 				group = 3
 			}
 			groups[group].Rows = append(groups[group].Rows, []string{child.Name(), child.Short})

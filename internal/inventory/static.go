@@ -2,6 +2,10 @@ package inventory
 
 func Static() Catalog {
 	definitions := []ToolDefinition{
+		{Name: "jetkvm_setup", Toolset: "setup", Effect: EffectAdmin, InputSchema: "setup_input", OutputSchema: "setup_progress", Retry: RetryNeverAfterSend, Receipt: ReceiptOperation},
+		observeToolFor("jetkvm_setup_status", "setup", false, "setup_status_input", "setup_progress", ""),
+		observeToolFor("jetkvm_get_config", "setup", false, "get_config_input", "settings_output", ""),
+		{Name: "jetkvm_update_config", Toolset: "setup", Effect: EffectAdmin, InputSchema: "settings_patch", OutputSchema: "setup_progress", Retry: RetryNeverAfterSend, Receipt: ReceiptOperation},
 		observeTool("jetkvm_list_devices", false, "list_devices_input", "device_list_output"),
 		observeTool("jetkvm_get_status", true, "device_input", "device_status_output"),
 		observeTool("jetkvm_get_capabilities", true, "capabilities_input", "capabilities_output"),
