@@ -1,5 +1,15 @@
 # Changelog
 
+## [1.0.5](https://github.com/kaaanata/jetkvm-cli/compare/v1.0.4...v1.0.5) (2026-09-05)
+
+
+### Bug Fixes
+
+* Show inline stages, measured download progress, speed and elapsed time for long operations. Unknown sizes stay indeterminate; JSON and MCP output remain free of progress UI.
+* Run explicit update and rollback commands without a second confirmation. Hidden --yes flags remain compatible; ownership, signature, checksum and device-action authorization checks remain enforced.
+* Wait for control and runtime cleanup before displaying final results. Preserve partial receipts and distinguish cancellation, activation failure and failed rollback without encouraging unsafe retries.
+* Simplify human results, add --verbose diagnostic details and actionable recovery hints, and verify cancellation, prompt handoff and plain-output behavior through real terminal tests. Cloud candidate work is not included.
+
 ## [1.0.4](https://github.com/kaaanata/jetkvm-cli/compare/v1.0.3...v1.0.4) (2026-09-05)
 
 
