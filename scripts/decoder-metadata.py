@@ -28,4 +28,18 @@ doc = {
     }],
     "relationships": [{"spdxElementId": "SPDXRef-DOCUMENT", "relationshipType": "DESCRIBES", "relatedSpdxElement": "SPDXRef-ffmpeg"}]
 }
+for name, repo, version, license_id in [
+    ("wasi-libc", "WebAssembly/wasi-libc", "2e6fb9d8ee0cdf9e431fbcabe8af3115de000a13", "Apache-2.0 WITH LLVM-exception AND MIT AND BSD-2-Clause"),
+    ("compiler-rt", "llvm/llvm-project", "895aa2c896ada719451be2e3673c83da8ddf1141", "Apache-2.0 WITH LLVM-exception")
+]:
+    ident = "SPDXRef-" + name
+    doc["packages"].append({
+        "SPDXID": ident, "name": name, "versionInfo": version,
+        "downloadLocation": "https://github.com/" + repo + "/tree/" + version,
+        "filesAnalyzed": False, "licenseDeclared": license_id,
+        "licenseConcluded": license_id, "copyrightText": "NOASSERTION",
+        "externalRefs": [{"referenceCategory": "PACKAGE-MANAGER", "referenceType": "purl", "referenceLocator": "pkg:github/" + repo + "@" + version}],
+        "comment": "Runtime support linked from the checksum-pinned wasi-sdk 34.0; full license notices accompany the executable."
+    })
+    doc["relationships"].append({"spdxElementId": "SPDXRef-ffmpeg", "relationshipType": "DEPENDS_ON", "relatedSpdxElement": ident})
 output.write_text(json.dumps(doc, indent=2) + "\n")

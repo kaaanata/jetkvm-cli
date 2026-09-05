@@ -34,6 +34,8 @@ FFmpeg's enabled components are LGPL-2.1-or-later; the complete license is in
 its repository license. Releases include the full license in executable archive
 NOTICE and publish `decoder-source.tar.gz` separately with signed checksums.
 That asset includes the source archive, this adapter, and the build/setup scripts.
+The linked wasi-libc and LLVM compiler-rt runtime notices are included in the
+same license file; their exact SDK source identities are recorded in the SBOM.
 The corresponding tagged JetKVM source supplies the rest of the relinkable Go
 application. No extra files are added to the four-file executable archives.
 
