@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/kaaanata/jetkvm-cli/internal/input"
 	"github.com/kaaanata/jetkvm-cli/internal/terminal"
 	updatecore "github.com/kaaanata/jetkvm-cli/internal/update"
 	"github.com/spf13/cobra"
@@ -49,7 +50,7 @@ func TestJSONBytesIndependentOfPresentation(t *testing.T) {
 }
 
 func TestHumanViewsKeepReceiptMeaning(t *testing.T) {
-	d, err := resultDocument("input.run", runActionsResult{Operation: operationReceiptResult{TerminalClaim: "transport accepted; physical outcome unverified", RetrySafe: false}})
+	d, err := resultDocument("input.run", runActionsResult{Operation: operationReceiptResult{TerminalClaim: "transport accepted; physical outcome unverified", RetrySafe: false}, Batch: input.BatchReceipt{Status: input.BatchAmbiguous}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -62,6 +63,20 @@ func TestHumanViewsKeepReceiptMeaning(t *testing.T) {
 	for _, want := range []string{"terminal claim: transport accepted; physical outcome unverified", "retry safe: false", "neutralized: false"} {
 		if !strings.Contains(strings.Join(values, "\n"), want) {
 			t.Fatalf("missing receipt meaning %q", want)
+		}
+	}
+}
+
+func TestReceiptLookupDoesNotInventBatchCleanup(t *testing.T) {
+	d, err := resultDocument("input.run", runActionsResult{Existing: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, section := range d.Sections {
+		for _, row := range section.Rows {
+			if strings.Contains(strings.Join(row, " "), "neutralized") {
+				t.Fatal("lookup fabricated cleanup evidence")
+			}
 		}
 	}
 }

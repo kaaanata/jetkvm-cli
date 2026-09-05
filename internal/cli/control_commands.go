@@ -1027,7 +1027,7 @@ func makeOperationReceiptResult(receipt operation.Receipt) operationReceiptResul
 type runActionsResult struct {
 	Observation *screenshotResult      `json:"observation,omitempty"`
 	Operation   operationReceiptResult `json:"operation"`
-	Batch       input.BatchReceipt     `json:"batch"`
+	Batch       input.BatchReceipt     `json:"batch,omitzero"`
 	Existing    bool                   `json:"existing,omitzero"`
 }
 

@@ -23,6 +23,56 @@ import (
 
 const testDeviceID = domain.DeviceID("device-1")
 
+func TestTakeoverConfirmationBindsSessionLifetimes(t *testing.T) {
+	service, _, _ := newTestService(t, []string{"video", "input"}, "serial-console")
+	cfg := policyTestConfig([]string{"video", "input"})
+	device := cfg.Devices["lab"]
+	device.Takeover.RequireConfirmation = true
+	cfg.Devices["lab"] = device
+	compiled, err := policy.Compile(cfg, inventory.Static())
+	if err != nil {
+		t.Fatal(err)
+	}
+	service.policy = compiled
+	request := OpenControlRequest{DeviceID: testDeviceID, Capabilities: []string{"video"}, IdleTimeout: time.Minute, AbsoluteLifetime: 2 * time.Minute}
+	plan, err := service.PrepareOpenControl(request)
+	if err != nil || !plan.Required {
+		t.Fatalf("prepare confirmation: %+v, %v", plan, err)
+	}
+	ctx := mintTestProof(t, service, plan.Binding)
+	changed := request
+	changed.IdleTimeout += time.Nanosecond
+	if _, err := service.OpenControl(ctx, changed); err == nil {
+		t.Fatal("changed idle timeout accepted")
+	}
+	changed = request
+	changed.AbsoluteLifetime += time.Nanosecond
+	if _, err := service.OpenControl(ctx, changed); err == nil {
+		t.Fatal("changed absolute lifetime accepted")
+	}
+	if _, err := service.OpenControl(ctx, request); err != nil {
+		t.Fatalf("confirmed open: %v", err)
+	}
+	if _, err := service.OpenControl(ctx, request); err == nil {
+		t.Fatal("confirmation replay accepted")
+	}
+}
+
+func TestWaitActionPersistsTerminalReceipt(t *testing.T) {
+	service, session, _ := newTestService(t, []string{"video", "input"}, "serial-console")
+	handle := openTestControl(t, service, []string{"input"})
+	request := RunActionsRequest{DeviceID: testDeviceID, Ref: control.Ref{ID: handle.ID, ExpectedGeneration: handle.Generation}, OperationID: uuid.NewV7(), Batch: input.Batch{Actions: []input.Action{{Type: input.ActionKeypress, Keys: []string{"ESC"}}, {Type: input.ActionWait, Duration: time.Millisecond}}}}
+	result, err := service.RunActions(t.Context(), request)
+	if err != nil || result.Operation.Stage != operation.StageCompleted || !result.Batch.Neutralized {
+		t.Fatalf("wait result: %+v, %v", result, err)
+	}
+	sends := session.sendCount()
+	result, err = service.RunActions(t.Context(), request)
+	if err != nil || !result.Existing || session.sendCount() != sends {
+		t.Fatalf("deduplicated wait: %+v, %v", result, err)
+	}
+}
+
 func TestReleaseInputPersistsOneTerminalReceipt(t *testing.T) {
 	service, session, _ := newTestService(t, []string{"video", "input"}, "atx-power")
 	handle := openTestControl(t, service, []string{"input"})
@@ -700,3 +750,23 @@ var (
 	_ runtimeSession     = (*fakeRuntimeSession)(nil)
 	_ input.HIDTransport = (*fakeRuntimeSession)(nil)
 )
+
+func TestInputConfirmationUsesCompiledKeyIdentity(t *testing.T) {
+	for _, key := range []string{"ctrl-left", "CONTROLLEFT", "SUPER", "SUPERLEFT", "COMMANDRIGHT", "meta_right"} {
+		t.Run(key, func(t *testing.T) {
+			if !requiresInputCommit(input.Batch{Actions: []input.Action{{Type: input.ActionKeypress, Keys: []string{key, "A"}}}}) {
+				t.Fatal("modifier alias bypassed confirmation")
+			}
+		})
+	}
+	for _, key := range []string{"F-1", "numpad_enter"} {
+		t.Run(key, func(t *testing.T) {
+			if !requiresInputCommit(input.Batch{Actions: []input.Action{{Type: input.ActionTypeText, Text: "test"}, {Type: input.ActionKeypress, Keys: []string{key}}}}) {
+				t.Fatal("commit key alias bypassed confirmation")
+			}
+		})
+	}
+	if requiresInputCommit(input.Batch{Actions: []input.Action{{Type: input.ActionKeypress, Keys: []string{"SHIFT", "A"}}}}) {
+		t.Fatal("ordinary shifted key unexpectedly requires confirmation")
+	}
+}

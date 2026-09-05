@@ -79,3 +79,10 @@ func FuzzCompileText(f *testing.F) {
 		}
 	})
 }
+
+func TestCommandAbbreviation(t *testing.T) {
+	modifier, keys, err := CompileKeyCombo([]string{"CMD", "A"})
+	if err != nil || modifier != 0x08 || len(keys) != 1 || keys[0] != 0x04 {
+		t.Fatalf("CMD+A: %x %x %v", modifier, keys, err)
+	}
+}

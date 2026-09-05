@@ -1,5 +1,10 @@
 # Project Notes
 
+- Canonical operation/confirmation digests encode time.Duration as exact integer nanoseconds through the JSON v2 marshaler; do not rely on its undefined default duration format. Reject overflowing MCP millisecond inputs before conversion.
+- MCP keyboard/text/batch tools always obtain the domain confirmation plan. Confirmation uses compiled HID key identities, including aliases; do not duplicate key-name heuristics in adapters. CMD is an alias for COMMAND/META.
+- A deduplicated operation lookup returns the durable operation receipt, without fabricating a zero-valued batch or cleanup result. Omit absent batch evidence in CLI/MCP JSON and human output.
+- TestHILMCPBinary exercises an explicit executable over stdio with the official SDK, protocol 2026-07-28 discovery, real takeover confirmation, native images, bounded input, deduplication, and closure. Keep target identity/configuration private, preserve confirmation policy, and do not run competing browser/device sessions during HIL.
+
 - Device onboarding and supported settings updates share `internal/onboarding` across CLI and MCP. Missing configuration starts a restricted MCP bootstrap; never prompt on MCP stdin, accept device passwords as tool arguments, or require users to construct config JSON or hardware IDs. The loopback browser form owns human credential entry and OS-keyring storage.
 - `setup device` and first-use interactive `devices list` guide enrollment; `config show` and `config set` provide credential-free reads and revision-bound changes. New configurations allow the non-device-scoped `setup` toolset. Existing explicit policy ceilings remain authoritative, including for CLI settings writes.
 - MCP exposes `jetkvm_setup`, `jetkvm_setup_status`, `jetkvm_get_config`, and `jetkvm_update_config`. Settings proposals bind an exact revision and server-owned before/after values; browser approvals cannot alter the proposed patch. Administrative tools never open WebRTC or send HID.

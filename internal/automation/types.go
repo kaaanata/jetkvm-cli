@@ -39,7 +39,7 @@ type RunActionsRequest struct {
 
 type RunActionsResult struct {
 	Operation   operation.Receipt  `json:"operation"`
-	Batch       input.BatchReceipt `json:"batch"`
+	Batch       input.BatchReceipt `json:"batch,omitzero"`
 	Existing    bool               `json:"existing,omitzero"`
 	Observation *ScreenObservation `json:"observation,omitempty"`
 }

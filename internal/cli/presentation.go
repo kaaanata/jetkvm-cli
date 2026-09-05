@@ -93,7 +93,9 @@ func resultDocument(command string, data any) (terminal.Document, error) {
 			d.Title = v.Operation.TerminalClaim
 		}
 		d.Sections = append(d.Sections, operationSections(v.Operation)...)
-		d.Sections = append(d.Sections, fields("Input batch", row("status", v.Batch.Status), row("neutralized", v.Batch.Neutralized), row("actions", len(v.Batch.Actions)), row("cleanup failure", v.Batch.CleanupFailure)))
+		if v.Batch.Status != "" {
+			d.Sections = append(d.Sections, fields("Input batch", row("status", v.Batch.Status), row("neutralized", v.Batch.Neutralized), row("actions", len(v.Batch.Actions)), row("cleanup failure", v.Batch.CleanupFailure)))
+		}
 		if v.Observation != nil {
 			d.Sections = append(d.Sections, screenshotSection(*v.Observation))
 		}

@@ -6,9 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
-	"strings"
 	"time"
-	"unicode/utf8"
 	"uuid"
 
 	"github.com/google/jsonschema-go/jsonschema"
@@ -17,6 +15,7 @@ import (
 	"github.com/kaaanata/jetkvm-cli/internal/control"
 	"github.com/kaaanata/jetkvm-cli/internal/domain"
 	"github.com/kaaanata/jetkvm-cli/internal/input"
+	"github.com/kaaanata/jetkvm-cli/internal/jetkvm"
 	"github.com/kaaanata/jetkvm-cli/internal/operation"
 	"github.com/kaaanata/jetkvm-cli/internal/video"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -158,7 +157,7 @@ type operationOutput struct {
 type runActionsOutput struct {
 	Observation *automation.ScreenObservation `json:"observation,omitempty"`
 	Operation   operationReceiptOutput        `json:"operation"`
-	Batch       input.BatchReceipt            `json:"batch"`
+	Batch       input.BatchReceipt            `json:"batch,omitzero"`
 	Existing    bool                          `json:"existing"`
 }
 
@@ -220,6 +219,9 @@ func stateChangingTool(name, title, description string, destructive bool) *mcp.T
 }
 
 func (s *Server) openControl(ctx context.Context, req *mcp.CallToolRequest, in openControlInput) (*mcp.CallToolResult, controlOutput, error) {
+	if in.IdleTimeoutMS < 0 || in.IdleTimeoutMS > int64((1<<63-1)/time.Millisecond) {
+		return nil, controlOutput{}, errors.New("idle_timeout_ms is out of range")
+	}
 	request := automation.OpenControlRequest{
 		DeviceID: in.DeviceID, Capabilities: in.RequestedCapabilities, Scope: s.scope,
 		Ownership: control.OwnershipOwned, IdleTimeout: time.Duration(in.IdleTimeoutMS) * time.Millisecond,
@@ -263,24 +265,18 @@ func (s *Server) closeControl(ctx context.Context, _ *mcp.CallToolRequest, in co
 	return nil, controlView(handle), nil
 }
 
-func (s *Server) keyPress(ctx context.Context, _ *mcp.CallToolRequest, in keyPressInput) (*mcp.CallToolResult, runActionsOutput, error) {
-	return s.executeActions(ctx, in.controlRefInput, in.OperationID, input.Batch{Actions: []input.Action{{Type: input.ActionKeypress, Keys: []string{in.Key}}}})
+func (s *Server) keyPress(ctx context.Context, req *mcp.CallToolRequest, in keyPressInput) (*mcp.CallToolResult, runActionsOutput, error) {
+	return s.executePlannedActions(ctx, req, in.controlRefInput, in.OperationID, input.Batch{Actions: []input.Action{{Type: input.ActionKeypress, Keys: []string{in.Key}}}})
 }
 
 func (s *Server) keyCombo(ctx context.Context, req *mcp.CallToolRequest, in keyComboInput) (*mcp.CallToolResult, runActionsOutput, error) {
 	batch := input.Batch{Actions: []input.Action{{Type: input.ActionKeypress, Keys: in.Keys}}}
-	if sensitiveKeys(in.Keys) {
-		return s.executeConfirmedActions(ctx, req, in.controlRefInput, in.OperationID, batch, "input.commit")
-	}
-	return s.executeActions(ctx, in.controlRefInput, in.OperationID, batch)
+	return s.executePlannedActions(ctx, req, in.controlRefInput, in.OperationID, batch)
 }
 
 func (s *Server) typeText(ctx context.Context, req *mcp.CallToolRequest, in typeTextInput) (*mcp.CallToolResult, runActionsOutput, error) {
 	batch := input.Batch{Actions: []input.Action{{Type: input.ActionTypeText, Text: in.Text}}}
-	if utf8.RuneCountInString(in.Text) > 256 {
-		return s.executeConfirmedActions(ctx, req, in.controlRefInput, in.OperationID, batch, "input.commit")
-	}
-	return s.executeActions(ctx, in.controlRefInput, in.OperationID, batch)
+	return s.executePlannedActions(ctx, req, in.controlRefInput, in.OperationID, batch)
 }
 
 func (s *Server) pointerClick(ctx context.Context, _ *mcp.CallToolRequest, in pointerClickInput) (*mcp.CallToolResult, runActionsOutput, error) {
@@ -300,13 +296,10 @@ func (s *Server) runActions(ctx context.Context, req *mcp.CallToolRequest, in ru
 	if err != nil {
 		return nil, runActionsOutput{}, err
 	}
-	if batchRequiresConfirmation(batch) {
-		return s.executeConfirmedActions(ctx, req, in.controlRefInput, in.OperationID, batch, "input.commit", in.ObserveAfter)
-	}
-	return s.executeActions(ctx, in.controlRefInput, in.OperationID, batch, in.ObserveAfter)
+	return s.executePlannedActions(ctx, req, in.controlRefInput, in.OperationID, batch, in.ObserveAfter)
 }
 
-func (s *Server) executeConfirmedActions(ctx context.Context, req *mcp.CallToolRequest, ref controlRefInput, operationID string, batch input.Batch, _ string, observeAfter ...bool) (*mcp.CallToolResult, runActionsOutput, error) {
+func (s *Server) executePlannedActions(ctx context.Context, req *mcp.CallToolRequest, ref controlRefInput, operationID string, batch input.Batch, observeAfter ...bool) (*mcp.CallToolResult, runActionsOutput, error) {
 	id, err := parseOperationID(operationID)
 	if err != nil {
 		return nil, runActionsOutput{}, err
@@ -467,8 +460,8 @@ func confirmationSchema(deviceID domain.DeviceID) *jsonschema.Schema {
 func inputBatch(in runActionsInput) (input.Batch, error) {
 	actions := make([]input.Action, len(in.Actions))
 	for index, action := range in.Actions {
-		if action.DurationMS < 0 {
-			return input.Batch{}, fmt.Errorf("action %d duration_ms must not be negative", index)
+		if action.DurationMS < 0 || action.DurationMS > int64((1<<63-1)/time.Millisecond) {
+			return input.Batch{}, fmt.Errorf("action %d duration_ms is out of range", index)
 		}
 		actions[index] = input.Action{
 			Type: action.Type, X: action.X, Y: action.Y, Button: action.Button,
@@ -483,32 +476,6 @@ func inputBatch(in runActionsInput) (input.Batch, error) {
 		}
 	}
 	return batch, nil
-}
-
-func batchRequiresConfirmation(batch input.Batch) bool {
-	hasType := false
-	for _, action := range batch.Actions {
-		if action.Type == input.ActionTypeText {
-			hasType = true
-			if utf8.RuneCountInString(action.Text) > 256 {
-				return true
-			}
-		}
-		if action.Type == input.ActionKeypress && sensitiveKeys(action.Keys) && hasType {
-			return true
-		}
-	}
-	return false
-}
-
-func sensitiveKeys(keys []string) bool {
-	for _, key := range keys {
-		switch strings.ToUpper(key) {
-		case "ENTER", "RETURN", "CTRL", "CONTROL", "ALT", "META", "SUPER", "GUI":
-			return true
-		}
-	}
-	return false
 }
 
 func parseOperationID(value string) (uuid.UUID, error) {
@@ -554,6 +521,14 @@ func receiptView(receipt operation.Receipt) operationReceiptOutput {
 
 func publicAutomationError(err error) error {
 	switch {
+	case errors.Is(err, input.ErrUnknownKey):
+		return fmt.Errorf("invalid_argument: %w", input.ErrUnknownKey)
+	case errors.Is(err, input.ErrUnsupportedText):
+		return fmt.Errorf("invalid_argument: %w", input.ErrUnsupportedText)
+	case errors.Is(err, input.ErrNeutralization):
+		return fmt.Errorf("unavailable: %w", input.ErrNeutralization)
+	case errors.Is(err, jetkvm.ErrSessionClosed), errors.Is(err, jetkvm.ErrSessionReplaced):
+		return fmt.Errorf("unavailable: %w", jetkvm.ErrSessionClosed)
 	case errors.Is(err, video.ErrDecoderUnavailable), errors.Is(err, domain.ErrCapabilityUnavailable):
 		return fmt.Errorf("capability_unavailable: %w", domain.ErrCapabilityUnavailable)
 	case errors.Is(err, video.ErrFrameStale), errors.Is(err, input.ErrObservationStale):

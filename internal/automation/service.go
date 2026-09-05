@@ -8,7 +8,6 @@ import (
 	"errors"
 	"fmt"
 	"slices"
-	"strings"
 	"time"
 	"unicode/utf8"
 	"uuid"
@@ -574,10 +573,12 @@ func requiresInputCommit(batch input.Batch) bool {
 			if sensitiveChord(action.Keys) {
 				return true
 			}
-			for _, key := range action.Keys {
-				normalized := strings.ToUpper(key)
-				if normalized == "ENTER" || normalized == "RETURN" || normalized == "NUMPADENTER" || isFunctionKey(normalized) {
-					hasCommitKey = true
+			_, usages, err := input.CompileKeyCombo(action.Keys)
+			if err == nil {
+				for _, usage := range usages {
+					if usage == 0x28 || usage == 0x58 || (usage >= 0x3a && usage <= 0x45) || (usage >= 0x68 && usage <= 0x73) {
+						hasCommitKey = true
+					}
 				}
 			}
 		}
@@ -589,27 +590,10 @@ func sensitiveChord(keys []string) bool {
 	if len(keys) < 2 {
 		return false
 	}
-	for _, key := range keys {
-		switch strings.ToUpper(key) {
-		case "CTRL", "CONTROL", "CTRLLEFT", "CTRLRIGHT", "ALT", "ALTLEFT", "ALTRIGHT", "ALTGR", "META", "METALEFT", "METARIGHT", "CMD", "COMMAND", "WIN", "WINDOWS":
-			return true
-		}
-	}
-	return false
-}
-
-func isFunctionKey(key string) bool {
-	if !strings.HasPrefix(key, "F") || len(key) < 2 || len(key) > 3 {
-		return false
-	}
-	value := 0
-	for _, digit := range key[1:] {
-		if digit < '0' || digit > '9' {
-			return false
-		}
-		value = value*10 + int(digit-'0')
-	}
-	return value >= 1 && value <= 24
+	modifier, _, err := input.CompileKeyCombo(keys)
+	// Use the same normalized modifier identity as HID compilation. Shift
+	// alone is ordinary typing; Control, Alt and Meta require confirmation.
+	return err == nil && modifier&0xdd != 0
 }
 
 func controlCapabilityTool(capability string) (string, bool) {
@@ -711,7 +695,13 @@ func powerConfirmationBinding(request PowerActionRequest, canonical []byte, poli
 }
 
 func canonicalJSON(value any) ([]byte, error) {
-	encoded, err := json.Marshal(value, json.Deterministic(true))
+	// Canonical operation digests use exact integer nanoseconds, including wait
+	// actions and confirmation lifetimes. JSON v2 has no default duration format.
+	encoded, err := json.Marshal(value, json.Deterministic(true), json.WithMarshalers(
+		json.MarshalFunc(func(duration time.Duration) ([]byte, error) {
+			return json.Marshal(int64(duration))
+		}),
+	))
 	if err != nil {
 		return nil, fmt.Errorf("marshal canonical operation arguments: %w", err)
 	}

@@ -120,7 +120,8 @@ The high load correlates with the video-driver D-state workers and is not, by it
 | Screenshot decode | verified at 1920x1080 | real H.264 IDR decoded with the embedded WASI codec; CLI PNG and MCP ImageContent decoded and visually inspected |
 | HID neutralization | transport verified | neutral keyboard/absolute/relative reports accepted and flushed; host-side effect not independently observed |
 | Pointer actions | transport verified | CLI move/click/double-click/drag/scroll and final batch screenshot; MCP observation-bound click with post-action ImageContent; accepted non-retryable receipts and neutralization checked |
-| Pointer host-side GUI effect | not independently verified | attached host currently displays a text login console, not a disposable graphical target |
+| Pointer host-side GUI effect | verified in a bounded GUI test | observed search-field focus and window drag, followed by restoration of window position; screenshots remained private |
+| Keyboard host-side effect | verified in a bounded GUI test | short search text appeared once after duplicate operation lookup; confirmed CMD+A and Backspace cleared the test text |
 | Serial receive/transmit | not tested | no serial I/O performed |
 | Virtual media mount | not tested | gadget exists but no image was mounted |
 | ATX/DC power | unavailable on current setup | serial-console is active extension |
@@ -132,3 +133,13 @@ The high load correlates with the video-driver D-state workers and is not, by it
 2. Use a disposable graphical host target to verify visible pointer selection/drag effects and keyboard text, in addition to accepted transport receipts and fresh screenshots.
 3. Validate serial RX/TX with a disposable loopback or test target.
 4. Add or swap to dedicated ATX/DC hardware before enabling destructive power HIL.
+
+## MCP regression acceptance (2026-09-05)
+
+The local main candidate was exercised through its actual executable and the official Go MCP SDK over stdio. Modern discovery selected `2026-07-28`; the server exposed 21 configured tools. The final three consecutive runs passed device/configuration reads, exact-target takeover elicitation, video/input control open, control readback, both native PNG observation tools at 1920x1080, Escape plus a bounded wait with post-action capture, operation deduplication, and clean control closure. The operator's persistent confirmation policy remained enabled.
+
+Manual MCP acceptance additionally exercised click, move, double-click, drag, scroll, text, CMD+A, and Backspace. Search text, focus, and window displacement were visually observed. Test text was cleared and the window position restored. Scroll and double-click receipts establish transport acceptance; their host-side semantic effect was not independently asserted. Expired observation bindings and expired controls rejected input with `not_sent` receipts.
+
+Competing browser sessions interrupted earlier attempts, including a session with an ambiguous input receipt and unconfirmed neutralization. That action was not replayed. After the operator closed the competing browser, independent new sessions passed. These tests do not establish simultaneous browser/MCP control, power behavior, multi-device hardware coverage, or signal-loss recovery. The installed release and the tested local candidate are distinct artifacts.
+
+Run the confirmed binary suite with `JETKVM_HIL_MCP=1`, an absolute `JETKVM_HIL_BINARY`, a private single-device `JETKVM_HIL_CONFIG`, and a private `JETKVM_HIL_SCREEN` output path. `JETKVM_HIL_INPUT=1` additionally opts in to the bounded Escape/wait batch. Use `go test ./internal/app -run '^TestHILMCPBinary$' -v -count=1`. Close competing browser control sessions first.

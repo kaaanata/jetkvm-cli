@@ -34,6 +34,7 @@ var modifierUsages = map[string]byte{
 	"META":         0x08,
 	"SUPER":        0x08,
 	"COMMAND":      0x08,
+	"CMD":          0x08,
 	"METALEFT":     0x08,
 	"SUPERLEFT":    0x08,
 	"CONTROLRIGHT": 0x10,

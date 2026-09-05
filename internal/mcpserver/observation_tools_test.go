@@ -116,3 +116,7 @@ func TestPointerBindingUsesOnlyObservationID(t *testing.T) {
 		t.Fatalf("caller metadata forwarded: %+v", batch.Observation)
 	}
 }
+
+func (*observingService) PrepareRunActions(automation.RunActionsRequest) (automation.ConfirmationPlan, error) {
+	return automation.ConfirmationPlan{}, nil
+}

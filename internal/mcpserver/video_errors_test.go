@@ -10,6 +10,7 @@ import (
 	"github.com/kaaanata/jetkvm-cli/internal/automation"
 	"github.com/kaaanata/jetkvm-cli/internal/domain"
 	"github.com/kaaanata/jetkvm-cli/internal/input"
+	"github.com/kaaanata/jetkvm-cli/internal/jetkvm"
 	"github.com/kaaanata/jetkvm-cli/internal/video"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
@@ -28,6 +29,11 @@ func TestVideoErrorsSurviveMCPWithoutPrivateDetails(t *testing.T) {
 		source, public error
 		kind           string
 	}{
+		{input.ErrUnknownKey, input.ErrUnknownKey, "invalid_argument"},
+		{input.ErrUnsupportedText, input.ErrUnsupportedText, "invalid_argument"},
+		{input.ErrNeutralization, input.ErrNeutralization, "unavailable"},
+		{jetkvm.ErrSessionClosed, jetkvm.ErrSessionClosed, "unavailable"},
+		{jetkvm.ErrSessionReplaced, jetkvm.ErrSessionClosed, "unavailable"},
 		{video.ErrVideoUnavailable, video.ErrVideoUnavailable, "unavailable"},
 		{video.ErrPipelineClosed, video.ErrVideoUnavailable, "unavailable"},
 		{video.ErrDecodeFailed, video.ErrDecodeFailed, "unavailable"},

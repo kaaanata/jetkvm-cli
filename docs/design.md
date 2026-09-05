@@ -316,6 +316,14 @@ Confirmation is a short-lived, one-time HMAC-sealed proof issued by a trusted in
 
 The proof is atomically consumed at the device-send boundary. It cannot be replayed, moved to another device, reused for modified arguments, or replaced with a caller-supplied `confirmed: true` field.
 
+Canonical operation and confirmation digests encode duration values as exact integer nanoseconds. This covers session lifetimes and batch waits without changing the public millisecond inputs. MCP rejects negative or overflowing millisecond values before converting them to durations.
+
+MCP keyboard, text, and batch adapters always request the domain confirmation plan. The domain uses the same compiled HID modifiers and key usages as execution, so case, separators, and aliases cannot change the confirmation requirement. `CMD` is accepted as an alias of `COMMAND`/`META`; Shift-only typing remains ordinary input.
+
+A lookup of an already completed operation returns its durable receipt and `existing: true`. If no batch evidence is available, the `batch` field is omitted; missing evidence must not become a fabricated `neutralized: false` result. The same rule applies to human CLI presentation.
+
+MCP revision `2026-07-28` uses `server/discover` with per-request metadata. Legacy `initialize` negotiation can select `2025-11-25`; that legacy probe is not evidence that the server lacks the newer revision.
+
 MCP uses the protocol's elicitation/MRTR flow. If the host cannot complete required elicitation, the operation fails closed. CLI prompts are only proof-issuance adapters; they are not authorization authorities. Non-interactive callers must provide an approved workflow or receive an action-required result.
 
 Opening a session may require confirmation because JetKVM can displace an existing browser session. Reset, hold, long text, commit actions, function keys, and sensitive chords require confirmation according to compiled policy.
