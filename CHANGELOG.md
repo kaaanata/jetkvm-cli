@@ -5,7 +5,10 @@
 
 ### Bug Fixes
 
-* guide device setup and settings ([#21](https://github.com/kaaanata/jetkvm-cli/issues/21)) ([8acf893](https://github.com/kaaanata/jetkvm-cli/commit/8acf8939ecfca8f03ba705bd2043fd262a3b711d))
+* Guide first-time device connection from the CLI or an agent without requiring configuration JSON, hardware IDs, or state-file paths. MCP starts in a restricted bootstrap mode before any device is configured.
+* Keep device passwords in an expiring local setup page and the operating-system credential store. Enrollment verifies the device without opening a control session or sending input.
+* Add revision-bound settings updates through CLI and MCP for output, input permissions, device exposure, takeover permission, and session lifetimes. Reject stale changes and activate updates on the same MCP connection after active controls close.
+* Preserve existing policy ceilings and confirmation requirements, keep machine output free of interactive prompts, and update the bundled agent guidance. Cloud integration is not included.
 
 ## [1.0.5](https://github.com/kaaanata/jetkvm-cli/compare/v1.0.4...v1.0.5) (2026-09-05)
 
