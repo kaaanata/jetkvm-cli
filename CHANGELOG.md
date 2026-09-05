@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.0.6](https://github.com/kaaanata/jetkvm-cli/compare/v1.0.5...v1.0.6) (2026-09-05)
+
+
+### Bug Fixes
+
+* guide device setup and settings ([#21](https://github.com/kaaanata/jetkvm-cli/issues/21)) ([8acf893](https://github.com/kaaanata/jetkvm-cli/commit/8acf8939ecfca8f03ba705bd2043fd262a3b711d))
+
 ## [1.0.5](https://github.com/kaaanata/jetkvm-cli/compare/v1.0.4...v1.0.5) (2026-09-05)
 
 
