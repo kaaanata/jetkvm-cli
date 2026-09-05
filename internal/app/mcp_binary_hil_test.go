@@ -103,6 +103,7 @@ func TestHILMCPBinary(t *testing.T) {
 	t.Logf("protocol 2026-07-28; discovered %d tools", len(listed.Tools))
 	call := func(name string, args map[string]any) *mcp.CallToolResult {
 		t.Helper()
+		started := time.Now()
 		r, err := session.CallTool(ctx, &mcp.CallToolParams{Name: name, Arguments: args})
 		if err != nil {
 			t.Fatalf("%s: %v", name, err)
@@ -111,7 +112,7 @@ func TestHILMCPBinary(t *testing.T) {
 			data, _ := json.Marshal(r)
 			t.Fatalf("%s: %s", name, data)
 		}
-		t.Logf("%s passed", name)
+		t.Logf("%s passed in %s", name, time.Since(started))
 		return r
 	}
 	for _, name := range []string{"jetkvm_list_devices", "jetkvm_get_status", "jetkvm_get_capabilities", "jetkvm_get_config"} {
@@ -169,6 +170,41 @@ func TestHILMCPBinary(t *testing.T) {
 	}
 	observed := call("jetkvm_observe", ref())
 	saveImage(observed)
+	firstRaw, _ := json.Marshal(observed.StructuredContent)
+	var firstMeta struct {
+		Wake        any `json:"wake"`
+		Observation struct {
+			CapturedAt time.Time `json:"captured_at"`
+			Frame      struct {
+				DecodedAt time.Time `json:"decoded_at"`
+			} `json:"frame"`
+		} `json:"observation"`
+	}
+	if err := json.Unmarshal(firstRaw, &firstMeta); err != nil {
+		t.Fatal(err)
+	}
+	t.Logf("first frame age=%s decode_latency=%s wake=%v", time.Since(firstMeta.Observation.CapturedAt), firstMeta.Observation.Frame.DecodedAt.Sub(firstMeta.Observation.CapturedAt), firstMeta.Wake != nil)
+	for range 5 {
+		result := call("jetkvm_observe", ref())
+		saveImage(result)
+		raw, _ := json.Marshal(result.StructuredContent)
+		var metadata struct {
+			Observation struct {
+				CapturedAt time.Time `json:"captured_at"`
+				Frame      struct {
+					DecodedAt time.Time `json:"decoded_at"`
+				} `json:"frame"`
+			} `json:"observation"`
+		}
+		if err := json.Unmarshal(raw, &metadata); err != nil {
+			t.Fatal(err)
+		}
+		age := time.Since(metadata.Observation.CapturedAt)
+		if metadata.Observation.CapturedAt.IsZero() || age < 0 || age > 5*time.Second {
+			t.Fatalf("invalid live frame age %s", age)
+		}
+		t.Logf("frame age=%s decode_latency=%s", age, metadata.Observation.Frame.DecodedAt.Sub(metadata.Observation.CapturedAt))
+	}
 	if inputEnabled {
 		args := ref()
 		args["operation_id"] = uuid.NewV7().String()

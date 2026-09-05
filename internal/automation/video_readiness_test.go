@@ -5,7 +5,6 @@ import (
 	"encoding/json/v2"
 	"errors"
 	"testing"
-	"time"
 	"uuid"
 
 	"github.com/kaaanata/jetkvm-cli/internal/control"
@@ -64,22 +63,36 @@ func TestObservationWakeDefaultsRespectPolicyAndLedger(t *testing.T) {
 }
 
 func TestWakeReceiptSurvivesNoSignalAndDoesNotReplay(t *testing.T) {
-	svc, session, _ := newTestService(t, []string{"video", "input"}, "serial-console")
-	h := openTestControl(t, svc, []string{"video", "input"})
-	session.observe = func(context.Context) (ScreenObservation, error) { return ScreenObservation{}, ErrVideoSleeping }
-	req := ObserveRequest{ControlRequest: ControlRequest{DeviceID: testDeviceID, Ref: control.Ref{ID: h.ID, ExpectedGeneration: h.Generation}}, DisableWake: false, WakeOperationID: uuid.NewV7()}
-	ctx, cancel := context.WithTimeout(t.Context(), 200*time.Millisecond)
-	defer cancel()
-	result, err := svc.Observe(ctx, req)
-	if !errors.Is(err, ErrVideoSleeping) || result.Wake == nil || result.Wake.Stage != operation.StageCompleted || !result.Wake.Batch.Neutralized {
-		t.Fatalf("partial: %+v %v", result, err)
-	}
-	sends := session.sendCount()
-	ctx2, cancel2 := context.WithTimeout(t.Context(), 20*time.Millisecond)
-	defer cancel2()
-	_, _ = svc.Observe(ctx2, req)
-	if session.sendCount() != sends {
-		t.Fatal("wake replayed")
+	for _, readiness := range []error{ErrVideoSleeping, ErrVideoNoSignal} {
+		t.Run(readiness.Error(), func(t *testing.T) {
+			svc, session, _ := newTestService(t, []string{"video", "input"}, "serial-console")
+			h := openTestControl(t, svc, []string{"video", "input"})
+			req := ObserveRequest{ControlRequest: ControlRequest{DeviceID: testDeviceID, Ref: control.Ref{ID: h.ID, ExpectedGeneration: h.Generation}}, WakeOperationID: uuid.NewV7()}
+			for attempt := range 2 {
+				ctx, cancel := context.WithCancel(t.Context())
+				defer cancel()
+				reads := 0
+				session.observe = func(context.Context) (ScreenObservation, error) {
+					reads++
+					if reads == 2 {
+						cancel()
+						return ScreenObservation{}, ctx.Err()
+					}
+					return ScreenObservation{}, readiness
+				}
+				before := session.sendCount()
+				result, err := svc.Observe(ctx, req)
+				if !errors.Is(err, readiness) || !errors.Is(err, context.Canceled) || result.Wake == nil || result.Wake.Stage != operation.StageCompleted {
+					t.Fatalf("partial receipt %+v error %v", result.Wake, err)
+				}
+				if attempt == 0 && !result.Wake.Batch.Neutralized {
+					t.Fatal("wake cleanup receipt lost")
+				}
+				if attempt == 1 && session.sendCount() != before {
+					t.Fatal("wake replayed")
+				}
+			}
+		})
 	}
 }
 

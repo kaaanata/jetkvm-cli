@@ -24,7 +24,7 @@ func TestEmbeddedDecoderLocalCapture(t *testing.T) {
 	defer d.Close()
 	for i := range 2 {
 		start := time.Now()
-		f, err := d.Decode(t.Context(), DecodeRequest{AccessUnit: AccessUnit{AnnexB: data, Keyframe: true, Decodable: true}})
+		f, err := d.Decode(t.Context(), DecodeRequest{EndOfStream: true, AccessUnit: AccessUnit{AnnexB: data, Keyframe: true, Decodable: true}})
 		if err != nil {
 			t.Fatal(err)
 		}

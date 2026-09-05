@@ -250,7 +250,7 @@ func (s *Service) RunActions(ctx context.Context, request RunActionsRequest) (Ru
 			if captured, ok := session.(interface{ lastCapture() *ScreenObservation }); ok && batchHasScreenshot(request.Batch) {
 				observation = captured.lastCapture()
 			} else {
-				screen, observationErr = session.(screenSession).Observe(executeCtx, 0)
+				screen, observationErr = session.(screenSession).Observe(executeCtx, 0, time.Now())
 				if observationErr == nil {
 					observation = &screen
 				}

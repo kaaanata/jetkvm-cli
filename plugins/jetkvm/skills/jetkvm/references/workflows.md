@@ -20,7 +20,7 @@ Read-only HTTP inspection must not open a WebRTC session.
 5. Set `observe_after: true` on a pointer tool or `jetkvm_run_actions` when the next decision needs a result image. Inspect the receipt even if the response is marked as an error; partial receipts and any available ImageContent remain meaningful.
 6. Close the owned handle after the workflow.
 
-The default coordinate binding lifetime is 30 seconds, measured from source frame receive time, not when the model receives the result or when decoding finishes. Capture freshness is separate: a capture requests a fresh post-call IDR frame. `decoded_at` records decode timing and does not renew the binding. Never restamp an observation or provide invented dimensions to extend its validity. If it expires, observe again on the still-valid handle; if the handle or generation changes, discard the old binding and acquire a new one.
+The default coordinate binding lifetime is 30 seconds, measured from source frame receive time, not when the model receives the result or when decoding finishes. Capture freshness is separate: ordinary observations may reuse a fresh continuously decoded frame; post-action observations still require a frame received after input completion. `decoded_at` records decode timing and does not renew the binding. Never restamp an observation or provide invented dimensions to extend its validity. If it expires, observe again on the still-valid handle; if the handle or generation changes, discard the old binding and acquire a new one.
 
 ## Command-scoped CLI
 

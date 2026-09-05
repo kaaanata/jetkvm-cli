@@ -50,6 +50,8 @@ checksum:
   name_template: checksums.txt
   algorithm: sha256
   extra_files:
+    - glob: .cache/release-metadata/decoder-source.tar.gz
+      name_template: decoder-source.tar.gz
     - glob: .cache/release-metadata/decoder.sbom.json
       name_template: decoder.sbom.json
     - glob: .cache/release-installers/install.sh
@@ -77,6 +79,8 @@ changelog:
 release:
   mode: keep-existing
   extra_files:
+    - glob: .cache/release-metadata/decoder-source.tar.gz
+      name_template: decoder-source.tar.gz
     - glob: .cache/release-metadata/decoder.sbom.json
       name_template: decoder.sbom.json
     - glob: .cache/release-installers/install.sh

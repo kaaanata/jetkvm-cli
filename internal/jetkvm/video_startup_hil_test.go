@@ -2,9 +2,11 @@ package jetkvm_test
 
 import (
 	"context"
+	"encoding/binary"
 	"errors"
 	"net"
 	"os"
+	"slices"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -18,17 +20,48 @@ import (
 
 type startupDecoder struct {
 	video.Decoder
-	t     *testing.T
-	start time.Time
-	calls atomic.Int64
+	t          *testing.T
+	start      time.Time
+	calls      atomic.Int64
+	continuous bool
+	record     *os.File
+	mu         sync.Mutex
+	durations  []time.Duration
+	ages       []time.Duration
+	outputs    int
 }
 
 func (d *startupDecoder) Decode(ctx context.Context, r video.DecodeRequest) (video.DecodedFrame, error) {
 	d.calls.Add(1)
-	d.t.Logf("decode_start elapsed=%s source_age=%s bytes=%d", time.Since(d.start), time.Since(r.AccessUnit.ReceivedAt), len(r.AccessUnit.AnnexB))
+	if !d.continuous {
+		d.t.Logf("decode_start elapsed=%s source_age=%s bytes=%d", time.Since(d.start), time.Since(r.AccessUnit.ReceivedAt), len(r.AccessUnit.AnnexB))
+	}
+	if d.record != nil {
+		var size [4]byte
+		binary.LittleEndian.PutUint32(size[:], uint32(len(r.AccessUnit.AnnexB)))
+		if _, err := d.record.Write(size[:]); err != nil {
+			return video.DecodedFrame{}, err
+		}
+		if _, err := d.record.Write(r.AccessUnit.AnnexB); err != nil {
+			return video.DecodedFrame{}, err
+		}
+	}
 	now := time.Now()
 	frame, err := d.Decoder.Decode(ctx, r)
-	d.t.Logf("decode_end duration=%s success=%t canceled=%t", time.Since(now), err == nil, ctx.Err() != nil)
+	if !d.continuous {
+		d.t.Logf("decode_end duration=%s success=%t canceled=%t", time.Since(now), err == nil, ctx.Err() != nil)
+	}
+	d.mu.Lock()
+	d.durations = append(d.durations, time.Since(now))
+	if frame.Image != nil {
+		d.outputs++
+		source := r.AccessUnit.ReceivedAt
+		if frame.Source != nil {
+			source = frame.Source.ReceivedAt
+		}
+		d.ages = append(d.ages, time.Since(source))
+	}
+	d.mu.Unlock()
 	return frame, err
 }
 
@@ -96,7 +129,15 @@ func TestHILVideoStartupTimeline(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		traced := &startupDecoder{Decoder: decoder, t: t, start: start}
+		traced := &startupDecoder{Decoder: decoder, t: t, start: start, continuous: os.Getenv("JETKVM_HIL_CONTINUOUS") == "1"}
+		if path := os.Getenv("JETKVM_HIL_RECORD"); path != "" {
+			file, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_EXCL, 0600)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer file.Close()
+			traced.record = file
+		}
 		pipeline, err := video.NewPipeline("diagnostic", session.Generation(), video.Limits{}, traced, pli)
 		if err != nil {
 			t.Fatal(err)
@@ -153,5 +194,26 @@ func TestHILVideoStartupTimeline(t *testing.T) {
 			t.Fatal("observation failed; see timing counters")
 		}
 		t.Logf("image=%dx%d source_age=%s", obs.Frame.Width, obs.Frame.Height, time.Since(obs.CapturedAt))
+		if traced.continuous {
+			began := time.Now()
+			initial := traced.calls.Load()
+			select {
+			case <-ctx.Done():
+				t.Fatal("continuous test canceled")
+			case <-time.After(20 * time.Second):
+			}
+			elapsed := time.Since(began)
+			stop()
+			wg.Wait()
+			_ = pipeline.Close()
+			traced.mu.Lock()
+			defer traced.mu.Unlock()
+			slices.Sort(traced.durations)
+			slices.Sort(traced.ages)
+			if len(traced.ages) == 0 {
+				t.Fatal("no decoded frames")
+			}
+			t.Logf("continuous interval=%s input_fps=%.1f outputs=%d decode_p95=%s source_age_p95=%s source_age_max=%s packets=%d sequence_gaps=%d assembly_errors=%d", elapsed, float64(traced.calls.Load()-initial)/elapsed.Seconds(), traced.outputs, traced.durations[len(traced.durations)*95/100], traced.ages[len(traced.ages)*95/100], traced.ages[len(traced.ages)-1], packets.Load(), gaps.Load(), assemblyErrors.Load())
+		}
 	}
 }

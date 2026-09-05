@@ -147,3 +147,30 @@ Run the confirmed binary suite with `JETKVM_HIL_MCP=1`, an absolute `JETKVM_HIL_
 ## Automatic wake candidate acceptance
 
 The post-1.0.7 local candidate distinguishes firmware sleep from `no_signal`. With existing input permission, an ordinary CLI screenshot automatically sent one Shift press/release and returned a fresh 1920x1080 PNG with an accepted, neutralized wake receipt. In an input/video MCP session, `disable_wake: true` returned `video_no_signal`; the following ordinary observation call automatically woke the host and returned native PNG content plus its wake receipt. Both observation aliases were exercised, and the owned control closed cleanly. The attached host remained locked; no credential entry or login was performed. This candidate behavior is not part of the 1.0.7 release artifact.
+
+## Continuous decoder candidate acceptance
+
+The continuous-video candidate was tested through its actual executable with
+both the official MCP client and the command-scoped CLI. Three MCP sessions
+passed 1920x1080 PNG observation, repeated captures, a bounded Escape/wait batch
+with post-action image, operation deduplication and clean closure. Warm MCP
+observations took approximately 92–94 ms; input plus image took 287–339 ms.
+Source ages on repeated observations were approximately 126–229 ms in the first
+run. No caller timestamp was substituted for the source receive time.
+
+A first-call diagnostic took 5.434 s without a wake action; source-to-decode took
+374 ms, so first-media waiting remains distinct from warm screenshot latency.
+Read-only CLI HIL completed screenshot and closure in 5.89 s. Images were visually
+inspected and remained private. No power or persistent device setting was changed.
+These results verify the candidate and one fixture, not yet a published artifact.
+Synthetic P/B, packet loss, queue overload and geometry tests supplement this
+single-device coverage; they do not prove physical multi-device or HDMI cable
+transition behavior. Detailed decoder selection and CPU/memory replay results
+are in `internal/video/DECODER_DECISION.md`.
+
+A subsequent 20-second read-only real-stream run measured 60.8 fps input,
+95.35 ms P95 source age and 8.55 ms P95 decode time, with no observed sequence
+gaps or assembly errors. CPU averaged about 36% of one core over the entire
+26.88-second process, including startup, and peak RSS was about 143 MiB.
+All 1,219 recorded frames matched native FFmpeg planar-frame hashes on replay.
+No HID was sent during this recording, and the capture was not committed.

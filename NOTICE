@@ -4,12 +4,15 @@ Copyright 2026 Fred Liang
 This product is independently developed and is not an official JetKVM product.
 JetKVM is a trademark of its respective owner.
 
-The embedded WASI still-frame decoder includes Eyevinn hi264 v0.10.0 and
-mp4ff v0.50.0 under the MIT License, executed with wazero under Apache-2.0.
+The embedded WASI H.264 decoder includes FFmpeg 9.0.1 libavcodec and libavutil
+under LGPL-2.1-or-later, executed with wazero under Apache-2.0. WASI libc and
+LLVM compiler-rt runtime support notices are included with the decoder licenses.
 Full decoder license texts are appended to this NOTICE in release archives
 and embedded in the executable. The source texts are maintained in
 internal/video/DECODER_LICENSES.txt. Reproducible decoder build instructions are
-provided in internal/video in the corresponding source release.
+provided in internal/video/wasmdecoder and scripts/build-decoder.sh in the
+corresponding source release. Complete corresponding codec source and build
+material are also distributed in the signed decoder-source.tar.gz release asset.
 
 Third-party attribution notices required by distributed dependencies will be
 included in release artifacts.

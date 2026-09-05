@@ -83,5 +83,6 @@ jobs:
             dist/checksums.txt.sigstore.json
             dist/*.sbom.json
             .cache/release-metadata/decoder.sbom.json
+            .cache/release-metadata/decoder-source.tar.gz
             .cache/release-installers/install.sh
             .cache/release-installers/install.ps1

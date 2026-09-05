@@ -618,7 +618,7 @@ type fakeRuntimeSession struct {
 	observe     func(context.Context) (ScreenObservation, error)
 }
 
-func (s *fakeRuntimeSession) Observe(ctx context.Context, _ time.Duration) (ScreenObservation, error) {
+func (s *fakeRuntimeSession) Observe(ctx context.Context, _ time.Duration, _ time.Time) (ScreenObservation, error) {
 	if s.observe == nil {
 		return ScreenObservation{}, domain.ErrCapabilityUnavailable
 	}

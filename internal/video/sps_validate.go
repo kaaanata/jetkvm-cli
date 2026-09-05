@@ -1,98 +1,11 @@
 package video
 
 import (
-	"bytes"
 	"fmt"
 )
 
-// The host parser deliberately reads only a bounded SPS prefix. The full
-// third-party SPS/PPS/entropy parsers run exclusively inside WASI.
-func validateIDR(req DecodeRequest) (int, int, error) {
-	l := req.Limits.withDefaults()
-	if err := l.validate(); err != nil {
-		return 0, 0, err
-	}
-	data := req.AccessUnit.AnnexB
-	if len(data) > min(l.MaxAccessUnitBytes, defaultMaxAU) {
-		return 0, 0, ErrAccessUnitTooLarge
-	}
-	bad := func() (int, int, error) {
-		return 0, 0, fmt.Errorf("%w: expected one complete SPS/PPS/IDR access unit", ErrDecodeFailed)
-	}
-	var sps, pps, idr bool
-	var sid, pid uint32
-	var w, h int
-	count := 0
-	for len(data) != 0 {
-		// Annex-B allows leading/trailing zero bytes and 3/4-byte start codes.
-		i := bytes.Index(data, []byte{0, 0, 1})
-		if i < 0 {
-			return bad()
-		}
-		for _, b := range data[:i] {
-			if b != 0 {
-				return bad()
-			}
-		}
-		data = data[i+3:]
-		end := bytes.Index(data, []byte{0, 0, 1})
-		if end < 0 {
-			end = len(data)
-		}
-		nalu := bytes.TrimRight(data[:end], "\x00")
-		data = data[end:]
-		count++
-		if count > min(l.MaxPacketsPerUnit, defaultMaxPackets) || len(nalu) < 2 || nalu[0]&0x80 != 0 {
-			return bad()
-		}
-		switch nalu[0] & 31 {
-		case 7:
-			if sps || pps || idr || len(nalu) > 4096 {
-				return bad()
-			}
-			var err error
-			w, h, sid, err = parseSPSBounds(nalu, l)
-			if err != nil {
-				return 0, 0, err
-			}
-			sps = true
-		case 8:
-			if !sps || pps || idr || len(nalu) > 4096 {
-				return bad()
-			}
-			b := newRBSP(nalu[1:])
-			pid = b.ue()
-			if pid > 255 || b.ue() != sid {
-				return bad()
-			}
-			b.read(1)
-			b.read(1)
-			if b.ue() != 0 || b.err {
-				return bad()
-			} // FMO unsupported.
-			pps = true
-		case 5:
-			if !sps || !pps || idr {
-				return bad()
-			} // hi264 returns the first slice only.
-			// Only the bounded slice-header prefix is needed by the host.
-			b := newRBSP(nalu[1:min(len(nalu), 128)])
-			first, typ, ref := b.ue(), b.ue(), b.ue()
-			if b.err || first != 0 || (typ != 2 && typ != 7) || ref != pid {
-				return bad()
-			}
-			idr = true
-		case 6, 9, 12: // SEI, AUD and filler cannot create a decoded picture.
-		default:
-			return bad() // Includes all non-IDR VCL and extension NALUs.
-		}
-	}
-	if !idr {
-		return bad()
-	}
-	return w, h, nil
-}
-
+// The host reads only a bounded SPS prefix before the sandbox allocates frames.
+// Full entropy and reference-picture parsing stays inside the WASI codec.
 type rbspBits struct {
 	data []byte
 	pos  int
@@ -148,6 +61,9 @@ func (b *rbspBits) se() int64 {
 }
 
 func parseSPSBounds(nalu []byte, l Limits) (int, int, uint32, error) {
+	return parseSPSBoundsColor(nalu, l, nil)
+}
+func parseSPSBoundsColor(nalu []byte, l Limits, col *streamColor) (int, int, uint32, error) {
 	bad := func() (int, int, uint32, error) {
 		return 0, 0, 0, fmt.Errorf("%w: unsupported or malformed SPS", ErrDecodeFailed)
 	}
@@ -230,14 +146,43 @@ func parseSPSBounds(nalu []byte, l Limits) (int, int, uint32, error) {
 	if b.err || left+right >= cw || top+bottom >= ch {
 		return bad()
 	}
-	// hi264 reconstructs at (0,0) and rounds displayed size to macroblocks.
-	// Accept only right/bottom cropping that preserves the coded macroblock grid.
+	// Preserve the supported progressive capture geometry: bounded right/bottom
+	// cropping only, without changing the origin of observation coordinates.
 	if left != 0 || top != 0 || right >= 16 || bottom >= 16 {
 		return bad()
 	}
 	w, h := cw-right, ch-bottom
 	if w > uint64(min(l.MaxWidth, defaultMaxWidth)) || h > uint64(min(l.MaxHeight, defaultMaxHeight)) || w*h > uint64(min(l.MaxPixels, int64(defaultMaxPixels))) || cw*ch > defaultMaxWidth*((defaultMaxHeight+15)/16*16) {
 		return 0, 0, 0, ErrDimensionsExceeded
+	}
+	if col != nil {
+		*col = streamColor{}
+		if b.read(1) != 0 {
+			if b.read(1) != 0 {
+				if b.read(8) == 255 {
+					b.read(16)
+					b.read(16)
+				}
+			}
+			if b.read(1) != 0 {
+				b.read(1)
+			}
+			if b.read(1) != 0 {
+				b.read(3)
+				col.full = b.read(1) != 0
+				if b.read(1) != 0 {
+					b.read(8)
+					b.read(8)
+					col.matrix = b.read(8)
+				}
+			}
+		}
+		if b.err {
+			return bad()
+		}
+		if col.matrix != 0 && col.matrix != 1 && col.matrix != 2 && col.matrix != 5 && col.matrix != 6 && col.matrix != 9 {
+			return bad()
+		}
 	}
 	return int(w), int(h), sid, nil
 }
