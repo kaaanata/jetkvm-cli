@@ -1,5 +1,34 @@
 # Changelog
 
+## [1.0.3](https://github.com/kaaanata/jetkvm-cli/compare/v1.0.7...v1.0.3) (2026-09-05)
+
+
+### Features
+
+* ship JetKVM CLI and agent integrations ([0ace712](https://github.com/kaaanata/jetkvm-cli/commit/0ace712c5a81c692f739d5d28e86313b9eadf30d))
+* unify terminal UI with Charm components ([b31de07](https://github.com/kaaanata/jetkvm-cli/commit/b31de07cabc84d452aa51212f6f1f39d0106361d))
+
+
+### Bug Fixes
+
+* complete terminal operation feedback ([#19](https://github.com/kaaanata/jetkvm-cli/issues/19)) ([806b3a9](https://github.com/kaaanata/jetkvm-cli/commit/806b3a9b3afff4de9d64b65e357a4783047de725))
+* complete visual controls and signed updates ([6e325b5](https://github.com/kaaanata/jetkvm-cli/commit/6e325b5afe8c03e5531174efa0a44b0b5f15b73e))
+* fetch codec modules before clean rebuild ([102f083](https://github.com/kaaanata/jetkvm-cli/commit/102f083bb052108b35361e192ac42b219292ef97))
+* guide device setup and settings ([#21](https://github.com/kaaanata/jetkvm-cli/issues/21)) ([8acf893](https://github.com/kaaanata/jetkvm-cli/commit/8acf8939ecfca8f03ba705bd2043fd262a3b711d))
+* install cosign from verified Go module ([3388742](https://github.com/kaaanata/jetkvm-cli/commit/3388742e810563f7788e790838a03c2957305d86))
+* join terminal input before form shutdown ([f4250c7](https://github.com/kaaanata/jetkvm-cli/commit/f4250c724c1f98f4084468d822e9b2f30c6c9030))
+* pin supported cosign installer action ([e7a105e](https://github.com/kaaanata/jetkvm-cli/commit/e7a105e6e9e710f4f102cfe4c91b653cb9349a42))
+* refine terminal UI and initial video startup ([#17](https://github.com/kaaanata/jetkvm-cli/issues/17)) ([e18f460](https://github.com/kaaanata/jetkvm-cli/commit/e18f4609debc87e039396615d49216c47114f3c3))
+* request initial video keyframes from SDP ([34a46eb](https://github.com/kaaanata/jetkvm-cli/commit/34a46eb2d545271dc8411cf20654a2d9bcef31f1))
+* restore confirmed MCP control and receipts ([75cb641](https://github.com/kaaanata/jetkvm-cli/commit/75cb64100794409861a7477ce20f1b90f5e134ca))
+* restore legacy release archive contract ([747897c](https://github.com/kaaanata/jetkvm-cli/commit/747897ca9655689e2648fbeb222db67016c4d8f8))
+* verify complete installs and native agent readback ([c11053d](https://github.com/kaaanata/jetkvm-cli/commit/c11053d22460f7d0a7a52f072c576168f86786c3))
+
+
+### Miscellaneous Chores
+
+* prepare patch release ([7d18098](https://github.com/kaaanata/jetkvm-cli/commit/7d18098465adea1ede30606805fe123e52ac65fe))
+
 ## [1.0.7](https://github.com/kaaanata/jetkvm-cli/compare/v1.0.6...v1.0.7) (2026-09-05)
 
 
