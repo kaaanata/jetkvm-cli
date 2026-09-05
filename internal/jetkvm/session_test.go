@@ -467,3 +467,23 @@ func testWebRTCAPI() *webrtc.API {
 	settingEngine.SetNetworkTypes([]webrtc.NetworkType{webrtc.NetworkTypeUDP4, webrtc.NetworkTypeUDP6})
 	return webrtc.NewAPI(webrtc.WithSettingEngine(settingEngine))
 }
+
+func TestConfiguredConnectDeadlineClosesSilentDevice(t *testing.T) {
+	closed := make(chan struct{})
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		conn, err := websocket.Accept(w, r, nil)
+		if err != nil {
+			return
+		}
+		defer conn.CloseNow()
+		defer close(closed)
+		_, _, _ = conn.Read(t.Context())
+	}))
+	defer server.Close()
+	client := newHTTPTestClient(t, server.URL, nil)
+	_, err := client.OpenSession(t.Context(), SessionConfig{ConnectTimeout: 50 * time.Millisecond})
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("deadline: %v", err)
+	}
+	waitClosed(t, closed)
+}

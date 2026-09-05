@@ -232,6 +232,7 @@ func TestTakeoverMRTRRejectsTamperAndReplay(t *testing.T) {
 		t.Fatal("tampered confirmation reached automation")
 	}
 
+	params.InputResponses = mcp.InputResponseMap{confirmationInputID: &mcp.ElicitResult{Action: "accept", Content: map[string]any{}}}
 	params.RequestState = first.RequestState
 	accepted, err := session.CallTool(t.Context(), params)
 	if err != nil {
@@ -634,4 +635,32 @@ func structuredMap(t *testing.T, structured any) map[string]any {
 		t.Fatal(err)
 	}
 	return decoded
+}
+
+func TestApprovalOnlyDeclineCancelAndInvalidRemainUnexecuted(t *testing.T) {
+	for _, action := range []string{"decline", "cancel", "unknown"} {
+		t.Run(action, func(t *testing.T) {
+			backend := &fakeAutomationService{}
+			issuer, err := NewConfirmationIssuer([]byte("0123456789abcdef0123456789abcdef"), time.Minute)
+			if err != nil {
+				t.Fatal(err)
+			}
+			adapter, _ := New(&fakeDeviceService{}, Options{Automation: backend, ConfirmationIssuer: issuer, PolicyRevision: "policy-test"})
+			session := connectInMemoryWithOptions(t, adapter.newProtocolServer(), &mcp.ClientOptions{Capabilities: &mcp.ClientCapabilities{Elicitation: &mcp.ElicitationCapabilities{}}, MultiRoundTrip: &mcp.MultiRoundTripOptions{Disabled: true}})
+			params := &mcp.CallToolParams{Name: toolOpenControl, Arguments: map[string]any{"device_id": "device-1", "requested_capabilities": []string{"video"}}}
+			first, err := session.CallTool(t.Context(), params)
+			if err != nil {
+				t.Fatal(err)
+			}
+			params.RequestState = first.RequestState
+			params.InputResponses = mcp.InputResponseMap{confirmationInputID: &mcp.ElicitResult{Action: action}}
+			result, err := session.CallTool(t.Context(), params)
+			if backend.openCalls != 0 {
+				t.Fatal("rejected approval opened control")
+			}
+			if err == nil && !result.IsError {
+				t.Fatal("invalid approval accepted")
+			}
+		})
+	}
 }

@@ -136,6 +136,8 @@ func (l *Lease) execute(ctx context.Context, action compiledAction) (ActionStatu
 			return ActionAmbiguous, Observation{}, err
 		}
 		return ActionAccepted, Observation{}, nil
+	case ActionKeyHold:
+		return l.keyhold(ctx, action.modifier, action.keys, action.duration)
 	case ActionKeypress:
 		return l.keypress(ctx, action.modifier, action.keys)
 	case ActionTypeText:
@@ -258,5 +260,46 @@ func classifyActionError(err error) string {
 		return "observation_stale"
 	default:
 		return fmt.Sprintf("input_error: %T", err)
+	}
+}
+
+// keyhold uses the protocol's dedicated keepalive, never key release/repress.
+// A delayed tick fails closed instead of reviving a firmware-auto-released key.
+func (l *Lease) keyhold(ctx context.Context, modifier byte, keys []byte, duration time.Duration) (ActionStatus, Observation, error) {
+	pressed, err := KeyboardReport(modifier, keys...)
+	if err != nil {
+		return ActionFailed, Observation{}, err
+	}
+	if err := l.sendHID(ctx, Reliable, pressed); err != nil {
+		return ActionAmbiguous, Observation{}, err
+	}
+	if err := l.manager.transport.Flush(ctx, l.token.generation); err != nil {
+		return ActionAmbiguous, Observation{}, err
+	}
+	deadline := time.NewTimer(duration)
+	defer deadline.Stop()
+	tick := time.NewTicker(50 * time.Millisecond)
+	defer tick.Stop()
+	previous := time.Now()
+	for {
+		select {
+		case <-ctx.Done():
+			return ActionAmbiguous, Observation{}, context.Cause(ctx)
+		case <-deadline.C:
+			released, _ := KeyboardReport(0)
+			if err := l.sendHID(ctx, Reliable, released); err != nil {
+				return ActionAmbiguous, Observation{}, err
+			}
+			return ActionAccepted, Observation{}, nil
+		case <-tick.C:
+			now := time.Now()
+			if now.Sub(previous) > 100*time.Millisecond {
+				return ActionAmbiguous, Observation{}, errors.New("key hold keepalive deadline missed")
+			}
+			previous = now
+			if err := l.sendHID(ctx, Reliable, []byte{0x09}); err != nil {
+				return ActionAmbiguous, Observation{}, err
+			}
+		}
 	}
 }

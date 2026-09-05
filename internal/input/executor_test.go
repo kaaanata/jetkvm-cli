@@ -312,3 +312,43 @@ func (o fixedObserver) Capture(context.Context, uint64) (Observation, error) {
 type panicObserver struct{}
 
 func (panicObserver) Capture(context.Context, uint64) (Observation, error) { panic("observer panic") }
+
+func TestKeyHoldSendsKeepalivesAndReleases(t *testing.T) {
+	transport := &fakeTransport{}
+	manager := testManager(t, transport, nil)
+	receipt, err := manager.RunActions(t.Context(), 7, Batch{Actions: []Action{{Type: ActionKeyHold, Keys: []string{"SHIFT"}, Duration: 160 * time.Millisecond}}})
+	if err != nil || !receipt.Neutralized || receipt.Status != BatchAccepted {
+		t.Fatalf("hold: %+v %v", receipt, err)
+	}
+	keepalives := 0
+	for _, call := range transport.snapshot() {
+		if len(call.payload) == 1 && call.payload[0] == 0x09 {
+			keepalives++
+		}
+	}
+	if keepalives < 2 {
+		t.Fatalf("keepalives=%d", keepalives)
+	}
+}
+
+func TestKeyHoldCancellationStillNeutralizes(t *testing.T) {
+	transport := &fakeTransport{}
+	manager := testManager(t, transport, nil)
+	ctx, cancel := context.WithTimeout(t.Context(), 80*time.Millisecond)
+	defer cancel()
+	receipt, err := manager.RunActions(ctx, 7, Batch{Actions: []Action{{Type: ActionKeyHold, Keys: []string{"SHIFT"}, Duration: time.Second}}})
+	if !errors.Is(err, context.DeadlineExceeded) || !receipt.Neutralized || receipt.Status != BatchAmbiguous {
+		t.Fatalf("cancel hold: %+v %v", receipt, err)
+	}
+}
+
+func TestKeyHoldBoundsRejectBeforeInput(t *testing.T) {
+	for _, duration := range []time.Duration{0, -time.Second, MaxKeyHoldDuration + time.Millisecond} {
+		transport := &fakeTransport{}
+		manager := testManager(t, transport, nil)
+		_, err := manager.RunActions(t.Context(), 7, Batch{Actions: []Action{{Type: ActionKeyHold, Keys: []string{"SHIFT"}, Duration: duration}}})
+		if !errors.Is(err, ErrInvalidAction) || len(transport.snapshot()) != 0 {
+			t.Fatalf("duration %s: %v", duration, err)
+		}
+	}
+}

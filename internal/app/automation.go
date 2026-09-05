@@ -116,3 +116,7 @@ func (s *AutomationService) Drain(ctx context.Context) error {
 func (s *AutomationService) CanWake(deviceID domain.DeviceID, scope policy.Scope) bool {
 	return s.next.CanWake(deviceID, scope)
 }
+
+func (s *AutomationService) GetPowerCapabilities(ctx context.Context, request automation.ControlRequest) (automation.PowerCapabilities, error) {
+	return s.next.GetPowerCapabilities(ctx, request)
+}

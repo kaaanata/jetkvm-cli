@@ -96,6 +96,9 @@ func TestOperationDedupConflictAndRecovery(t *testing.T) {
 	if err != nil || receipt.Stage != operation.StageSendStarted || receipt.SendStartedAt.IsZero() {
 		t.Fatalf("send_started transition = (%+v, %v)", receipt, err)
 	}
+	// Simulate the former owner exiting without finalizing its receipt.
+	_ = store.owners[id].Unlock()
+	delete(store.owners, id)
 	recovered, err := store.RecoverInterrupted(t.Context(), now.Add(2*time.Second))
 	if err != nil || recovered != 1 {
 		t.Fatalf("RecoverInterrupted() = (%d, %v), want (1, nil)", recovered, err)
@@ -283,5 +286,35 @@ func TestMigrationChecksumMismatchFailsClosed(t *testing.T) {
 	if reopened, err := Open(t.Context(), path); err == nil {
 		reopened.Close()
 		t.Fatal("Open() succeeded with a mismatched migration checksum")
+	}
+}
+
+func TestConcurrentOpenDoesNotRecoverLiveSend(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "shared.db")
+	first, err := Open(t.Context(), path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer first.Close()
+	id := uuid.New()
+	now := time.Now()
+	req := newTestRequest(t, id, domain.DeviceID("live-device"), 1, operation.EffectInput, "hold", "policy", []byte(`{}`))
+	if _, _, err := first.Begin(t.Context(), req, now); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := first.Transition(t.Context(), id, operation.StageSendStarted, operation.Patch{Delivery: operation.DeliveryPossiblySent, Verification: operation.Verification{Status: operation.VerificationNotRequested}, TerminalClaim: operation.TerminalClaimNotProven}, now); err != nil {
+		t.Fatal(err)
+	}
+	second, err := Open(t.Context(), path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer second.Close()
+	receipt, err := second.Get(t.Context(), id)
+	if err != nil || receipt.Stage != operation.StageSendStarted {
+		t.Fatalf("live receipt rewritten: %+v %v", receipt, err)
+	}
+	if _, err := first.Transition(t.Context(), id, operation.StageTransportAccepted, operation.Patch{Delivery: operation.DeliveryTransportAccepted, Verification: operation.Verification{Status: operation.VerificationNotRequested}, TerminalClaim: operation.TerminalClaimNotProven}, time.Now()); err != nil {
+		t.Fatal(err)
 	}
 }

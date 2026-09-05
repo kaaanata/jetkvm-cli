@@ -7,6 +7,10 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"github.com/gofrs/flock"
+	"os"
+	"path/filepath"
+	"sync"
 	"time"
 	"uuid"
 
@@ -24,7 +28,10 @@ const sqliteDriver = "sqlite"
 
 // Store owns the SQLite connection and all durable state transactions.
 type Store struct {
-	db *sql.DB
+	db       *sql.DB
+	ownersMu sync.Mutex
+	owners   map[uuid.UUID]*flock.Flock
+	lockDir  string
 }
 
 // Open opens and migrates a SQLite store. A single connection makes connection-
@@ -37,7 +44,14 @@ func Open(ctx context.Context, dataSourceName string) (*Store, error) {
 	db.SetMaxOpenConns(1)
 	db.SetMaxIdleConns(1)
 
-	store := &Store{db: db}
+	lockDir, err := filepath.Abs(dataSourceName + ".operations")
+	if err != nil {
+		return nil, errors.Join(err, db.Close())
+	}
+	if err := os.MkdirAll(lockDir, 0700); err != nil {
+		return nil, errors.Join(err, db.Close())
+	}
+	store := &Store{db: db, lockDir: lockDir, owners: make(map[uuid.UUID]*flock.Flock)}
 	if err := store.initialize(ctx); err != nil {
 		return nil, errors.Join(err, db.Close())
 	}
@@ -46,7 +60,14 @@ func Open(ctx context.Context, dataSourceName string) (*Store, error) {
 
 // Close closes the underlying database.
 func (s *Store) Close() error {
-	return s.db.Close()
+	s.ownersMu.Lock()
+	defer s.ownersMu.Unlock()
+	err := s.db.Close()
+	for id, lock := range s.owners {
+		err = errors.Join(err, lock.Unlock())
+		delete(s.owners, id)
+	}
+	return err
 }
 
 func (s *Store) initialize(ctx context.Context) error {
@@ -209,6 +230,30 @@ func (s *Store) Get(ctx context.Context, id uuid.UUID) (operation.Receipt, error
 
 // Transition atomically applies one legal state transition.
 func (s *Store) Transition(ctx context.Context, id uuid.UUID, to operation.Stage, patch operation.Patch, now time.Time) (operation.Receipt, error) {
+	s.ownersMu.Lock()
+	defer s.ownersMu.Unlock()
+	acquired := false
+	if to == operation.StageSendStarted && s.owners[id] == nil {
+		lock := flock.New(filepath.Join(s.lockDir, id.String()+".lock"))
+		ok, err := lock.TryLock()
+		if err != nil {
+			return operation.Receipt{}, err
+		}
+		if !ok {
+			return operation.Receipt{}, operation.ErrInvalidTransition
+		}
+		s.owners[id] = lock
+		acquired = true
+	}
+	committed := false
+	defer func() {
+		if (acquired && !committed) || (committed && (to == operation.StageCompleted || to == operation.StageFailed || to == operation.StageCancelled || to == operation.StageAmbiguous)) {
+			if lock := s.owners[id]; lock != nil {
+				_ = lock.Unlock()
+				delete(s.owners, id)
+			}
+		}
+	}()
 	now = normalizeTime(now)
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -264,28 +309,51 @@ func (s *Store) Transition(ctx context.Context, id uuid.UUID, to operation.Stage
 	if err := tx.Commit(); err != nil {
 		return operation.Receipt{}, fmt.Errorf("commit operation transition: %w", err)
 	}
+	committed = true
 	return receipt, nil
 }
 
 // RecoverInterrupted terminally marks every send interrupted by a prior process crash.
 func (s *Store) RecoverInterrupted(ctx context.Context, now time.Time) (int64, error) {
-	now = normalizeTime(now)
-	result, err := s.db.ExecContext(ctx, `
-		UPDATE operations SET
-			stage = ?, delivery = ?, verification_status = ?, terminal_claim = ?,
-			retry_safe = 0, error_kind = ?, updated_at_ms = ?, terminal_at_ms = ?
-		WHERE stage = ?`,
-		operation.StageAmbiguous, operation.DeliveryPossiblySent,
-		operation.VerificationNotObserved, operation.TerminalClaimNotProven, "process_interrupted_after_send_started",
-		toMillis(now), toMillis(now), operation.StageSendStarted)
+	rows, err := s.db.QueryContext(ctx, "SELECT operation_id FROM operations WHERE stage = ?", operation.StageSendStarted)
 	if err != nil {
-		return 0, fmt.Errorf("recover interrupted operations: %w", err)
+		return 0, err
 	}
-	rows, err := result.RowsAffected()
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			rows.Close()
+			return 0, err
+		}
+		ids = append(ids, id)
+	}
+	err = errors.Join(rows.Err(), rows.Close())
 	if err != nil {
-		return 0, fmt.Errorf("read recovery result: %w", err)
+		return 0, err
 	}
-	return rows, nil
+	var recovered int64
+	for _, id := range ids {
+		lock := flock.New(filepath.Join(s.lockDir, id+".lock"))
+		acquired, err := lock.TryLock()
+		if err != nil {
+			return recovered, err
+		}
+		if !acquired {
+			continue
+		}
+		result, updateErr := s.db.ExecContext(ctx, `UPDATE operations SET stage=?,delivery=?,verification_status=?,terminal_claim=?,retry_safe=0,error_kind=?,updated_at_ms=?,terminal_at_ms=? WHERE operation_id=? AND stage=?`, operation.StageAmbiguous, operation.DeliveryPossiblySent, operation.VerificationNotObserved, operation.TerminalClaimNotProven, "process_interrupted_after_send_started", toMillis(now), toMillis(now), id, operation.StageSendStarted)
+		unlockErr := lock.Unlock()
+		if err := errors.Join(updateErr, unlockErr); err != nil {
+			return recovered, err
+		}
+		count, err := result.RowsAffected()
+		if err != nil {
+			return recovered, err
+		}
+		recovered += count
+	}
+	return recovered, nil
 }
 
 // PurgeTerminalBefore removes only terminal receipts whose terminal time is older than cutoff.

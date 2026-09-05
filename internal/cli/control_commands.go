@@ -247,6 +247,7 @@ func (a *App) newInputCommand() *cobra.Command {
 	command := &cobra.Command{Use: "input", Short: "Send bounded keyboard and pointer input", Args: noArgs}
 	command.AddCommand(
 		a.newInputKeyCommand(),
+		a.newInputHoldCommand(),
 		a.newInputTypeCommand(),
 		a.newPointerCommand("move", "Move the pointer using a bound observation", input.ActionMove),
 		a.newPointerCommand("click", "Click using a bound observation", input.ActionClick),
@@ -490,7 +491,7 @@ func (a *App) newInputReleaseCommand() *cobra.Command {
 
 func (a *App) newPowerCommand() *cobra.Command {
 	command := &cobra.Command{Use: "power", Short: "Read ATX state and execute explicit power actions", Args: noArgs}
-	command.AddCommand(a.newPowerStatusCommand())
+	command.AddCommand(a.newPowerStatusCommand(), a.newPowerCapabilitiesCommand())
 	for _, definition := range []struct {
 		name   string
 		action automation.PowerAction
@@ -923,6 +924,11 @@ func (a actionJSON) action() (input.Action, bool, error) {
 			return input.Action{}, false, errors.New("scroll requires only delta_x and delta_y")
 		}
 		result.DeltaX, result.DeltaY = *a.DeltaX, *a.DeltaY
+	case input.ActionKeyHold:
+		if len(a.Keys) == 0 || a.DurationMS == nil || *a.DurationMS <= 0 || *a.DurationMS > int64(input.MaxKeyHoldDuration/time.Millisecond) || a.X != nil || a.Y != nil || a.Button != "" || len(a.Path) > 0 || a.DeltaX != nil || a.DeltaY != nil || a.Text != nil {
+			return input.Action{}, false, errors.New("key_hold requires keys and duration_ms within 1..12000")
+		}
+		result.Duration = time.Duration(*a.DurationMS) * time.Millisecond
 	case input.ActionKeypress:
 		if len(a.Keys) == 0 || a.X != nil || a.Y != nil || a.Button != "" || len(a.Path) > 0 || a.DeltaX != nil || a.DeltaY != nil || a.Text != nil || a.DurationMS != nil {
 			return input.Action{}, false, errors.New("keypress requires only keys")
@@ -1033,4 +1039,40 @@ type runActionsResult struct {
 
 func makeRunActionsResult(result automation.RunActionsResult) runActionsResult {
 	return runActionsResult{Operation: makeOperationReceiptResult(result.Operation), Batch: result.Batch, Existing: result.Existing}
+}
+
+func (a *App) newInputHoldCommand() *cobra.Command {
+	flags := new(boundFlags)
+	var duration time.Duration
+	command := &cobra.Command{Use: "hold <device> <key> [key...]", Short: "Hold a keyboard chord for a bounded duration, then release", Args: minimumArgs(2), RunE: func(command *cobra.Command, args []string) error {
+		if duration <= 0 || duration > input.MaxKeyHoldDuration {
+			return usageError(errors.New("--duration must be within 1ns..12s"))
+		}
+		return a.runInputActions(command, args[0], *flags, []input.Action{{Type: input.ActionKeyHold, Keys: slices.Clone(args[1:]), Duration: duration}}, nil, confirmationRequired)
+	}}
+	flags.addOperation(command)
+	command.Flags().DurationVar(&duration, "duration", 0, "required hold duration, at most 12s")
+	return command
+}
+
+func (a *App) newPowerCapabilitiesCommand() *cobra.Command {
+	return &cobra.Command{Use: "capabilities <device>", Short: "Probe power paths without sending power actions", Args: exactArgs(1), RunE: func(command *cobra.Command, args []string) error {
+		probe, ok := a.deps.Automation.(interface {
+			GetPowerCapabilities(context.Context, automation.ControlRequest) (automation.PowerCapabilities, error)
+		})
+		if !ok {
+			return domain.ErrCapabilityUnavailable
+		}
+		id, err := a.resolveDevice(command.Context(), args[0])
+		if err != nil {
+			return err
+		}
+		return a.withEphemeralControl(command.Context(), id, []string{"video"}, func(ctx context.Context, ref control.Ref) error {
+			result, err := probe.GetPowerCapabilities(ctx, automation.ControlRequest{DeviceID: id, Ref: ref})
+			if err != nil {
+				return err
+			}
+			return a.writeResult("power.capabilities", result)
+		})
+	}}
 }

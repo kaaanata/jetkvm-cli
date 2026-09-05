@@ -69,12 +69,12 @@ func TestHILMCPBinary(t *testing.T) {
 			if err := json.Unmarshal(raw, &schema); err != nil {
 				return nil, err
 			}
-			if req.Params.Mode != "form" || schema.Properties["device_id"].Const != deviceID || req.Params.Message != "Confirm opening JetKVM control for device "+deviceID+". This may disconnect an existing browser session." {
+			if req.Params.Mode != "form" || len(schema.Properties) != 0 || req.Params.Message != "Confirm opening JetKVM control for device "+deviceID+". This may disconnect an existing browser session." {
 				t.Error("unexpected confirmation target")
 				return &mcp.ElicitResult{Action: "decline"}, nil
 			}
 			confirmations++
-			return &mcp.ElicitResult{Action: "accept", Content: map[string]any{"confirmed": true, "device_id": deviceID}}, nil
+			return &mcp.ElicitResult{Action: "accept", Content: map[string]any{}}, nil
 		},
 	})
 	command := exec.CommandContext(ctx, binary, "--config", configPath, "mcp", "serve", "--transport=stdio")

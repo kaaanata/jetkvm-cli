@@ -569,6 +569,8 @@ func requiresInputCommit(batch input.Batch) bool {
 			if utf8.RuneCountInString(action.Text) > 256 {
 				return true
 			}
+		case input.ActionKeyHold:
+			return true
 		case input.ActionKeypress:
 			if sensitiveChord(action.Keys) {
 				return true

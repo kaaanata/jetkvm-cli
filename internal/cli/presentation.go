@@ -99,6 +99,12 @@ func resultDocument(command string, data any) (terminal.Document, error) {
 		if v.Observation != nil {
 			d.Sections = append(d.Sections, screenshotSection(*v.Observation))
 		}
+	case automation.PowerCapabilities:
+		d.Title = "Power capabilities observed"
+		d.Sections = append(d.Sections, fields("Device", row("active extension", v.ActiveExtension)))
+		for _, path := range v.Paths {
+			d.Sections = append(d.Sections, fields(path.Path, row("protocol supported", path.ProtocolSupported), row("ready", path.Ready), row("physical button", path.PhysicalButton), row("hold durations ms", fmt.Sprint(path.HoldDurationsMS)), row("reason", path.Reason)))
+		}
 	case automation.PowerState:
 		d.Title = "Power state observed"
 		d.Sections = append(d.Sections, fields("Power", row("device", v.DeviceID), row("extension", v.ActiveExtension), row("power LED", v.PowerLED), row("HDD LED", v.HDDLED), row("observed", v.ObservedAt.Format(time.RFC3339Nano))))

@@ -7,10 +7,11 @@ import (
 )
 
 const (
-	MaxActions       = 16
-	MaxBatchDuration = 15 * time.Second
-	MaxWaitDuration  = 5 * time.Second
-	MaxTotalWait     = 10 * time.Second
+	MaxKeyHoldDuration = 12 * time.Second
+	MaxActions         = 16
+	MaxBatchDuration   = 15 * time.Second
+	MaxWaitDuration    = 5 * time.Second
+	MaxTotalWait       = 10 * time.Second
 )
 
 var (
@@ -27,6 +28,7 @@ const (
 	ActionDrag        ActionType = "drag"
 	ActionScroll      ActionType = "scroll"
 	ActionKeypress    ActionType = "keypress"
+	ActionKeyHold     ActionType = "key_hold"
 	ActionTypeText    ActionType = "type"
 	ActionWait        ActionType = "wait"
 	ActionScreenshot  ActionType = "screenshot"
@@ -209,12 +211,19 @@ func compileAction(action Action, limits Limits, binding *ObservationBinding, ge
 		}
 		item.deltaX = int8(action.DeltaX)
 		item.deltaY = int8(action.DeltaY)
-	case ActionKeypress:
+	case ActionKeypress, ActionKeyHold:
 		modifier, keys, err := CompileKeyCombo(action.Keys)
 		if err != nil {
 			return compiledAction{}, 0, err
 		}
 		item.modifier, item.keys = modifier, keys
+		if action.Type == ActionKeyHold {
+			if action.Duration <= 0 || action.Duration > MaxKeyHoldDuration {
+				return compiledAction{}, 0, fmt.Errorf("%w: key hold must be within 1ns..%s", ErrInvalidAction, MaxKeyHoldDuration)
+			}
+			item.duration = action.Duration
+			return item, action.Duration + limits.InterKey, nil
+		}
 		return item, limits.KeyHold + limits.InterKey, nil
 	case ActionTypeText:
 		strokes, err := CompileText(action.Text)
@@ -254,6 +263,8 @@ func validateFields(action Action) error {
 		invalid = point || hasDelta || hasKeys || hasText || hasDuration
 	case ActionScroll:
 		invalid = point || hasButton || hasPath || hasKeys || hasText || hasDuration
+	case ActionKeyHold:
+		invalid = point || hasButton || hasPath || hasDelta || hasText || !hasKeys || !hasDuration
 	case ActionKeypress:
 		invalid = point || hasButton || hasPath || hasDelta || hasText || hasDuration
 	case ActionTypeText:

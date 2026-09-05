@@ -62,9 +62,10 @@ type controlOutput struct {
 }
 
 type controlSnapshotOutput struct {
-	Transport control.TransportState `json:"transport"`
-	Session   control.SessionState   `json:"session"`
-	Handle    *controlOutput         `json:"handle,omitempty"`
+	Power     *automation.PowerCapabilities `json:"power_capabilities,omitempty"`
+	Transport control.TransportState        `json:"transport"`
+	Session   control.SessionState          `json:"session"`
+	Handle    *controlOutput                `json:"handle,omitempty"`
 }
 
 type keyPressInput struct {
@@ -254,7 +255,17 @@ func (s *Server) getControl(ctx context.Context, _ *mcp.CallToolRequest, in cont
 	if err != nil {
 		return nil, controlSnapshotOutput{}, publicAutomationError(err)
 	}
-	return nil, controlSnapshotView(snapshot), nil
+	output := controlSnapshotView(snapshot)
+	if probe, ok := s.automation.(interface {
+		GetPowerCapabilities(context.Context, automation.ControlRequest) (automation.PowerCapabilities, error)
+	}); ok && snapshot.Handle != nil && slices.Contains(snapshot.Handle.Capabilities, "video") {
+		capabilities, err := probe.GetPowerCapabilities(ctx, automation.ControlRequest{DeviceID: in.DeviceID, Ref: controlRef(in), Scope: s.scope})
+		if err != nil {
+			return nil, output, publicAutomationError(err)
+		}
+		output.Power = &capabilities
+	}
+	return nil, output, nil
 }
 
 func (s *Server) closeControl(ctx context.Context, _ *mcp.CallToolRequest, in controlRefInput) (*mcp.CallToolResult, controlOutput, error) {
@@ -421,20 +432,33 @@ func (s *Server) confirmCall(ctx context.Context, req *mcp.CallToolRequest, clai
 			InputRequests: mcp.InputRequestMap{
 				confirmationInputID: &mcp.ElicitParams{
 					Mode: "form", Message: message,
-					RequestedSchema: confirmationSchema(claims.DeviceID),
+					RequestedSchema: confirmationSchema(),
 				},
 			},
 			RequestState: state,
 		}, nil
 	}
 	elicitation, ok := response.(*mcp.ElicitResult)
-	if !ok || elicitation == nil || elicitation.Action != "accept" {
-		return ctx, nil, errors.New("operation confirmation was declined or invalid")
+	if !ok || elicitation == nil {
+		return ctx, nil, errors.New("confirmation_invalid_response: host returned an unsupported response type")
 	}
-	confirmed, _ := elicitation.Content["confirmed"].(bool)
-	confirmedDevice, _ := elicitation.Content["device_id"].(string)
-	if !confirmed || confirmedDevice != string(claims.DeviceID) {
-		return ctx, nil, errors.New("operation confirmation did not match the target device")
+	switch elicitation.Action {
+	case "decline":
+		return ctx, nil, errors.New("confirmation_declined: host declined approval; this may be host policy rather than a user choice")
+	case "cancel":
+		return ctx, nil, errors.New("confirmation_canceled: host canceled approval")
+	case "accept":
+	default:
+		return ctx, nil, errors.New("confirmation_invalid_response: host returned an unknown approval action")
+	}
+	// Legacy clients may echo the old fixed form fields. Never accept a changed
+	// target, while approval-only clients need no redundant user input.
+	if len(elicitation.Content) > 0 {
+		confirmed, _ := elicitation.Content["confirmed"].(bool)
+		device, _ := elicitation.Content["device_id"].(string)
+		if !confirmed || device != string(claims.DeviceID) {
+			return ctx, nil, errors.New("confirmation_target_mismatch: approval did not match the bound target")
+		}
 	}
 	confirmedCtx, err := s.confirm.Confirm(ctx, req.Params.RequestState, claims)
 	if err != nil {
@@ -443,18 +467,10 @@ func (s *Server) confirmCall(ctx context.Context, req *mcp.CallToolRequest, clai
 	return confirmedCtx, nil, nil
 }
 
-func confirmationSchema(deviceID domain.DeviceID) *jsonschema.Schema {
-	confirmed := any(true)
-	device := any(string(deviceID))
-	return &jsonschema.Schema{
-		Type: "object",
-		Properties: map[string]*jsonschema.Schema{
-			"confirmed": {Type: "boolean", Const: &confirmed},
-			"device_id": {Type: "string", Const: &device},
-		},
-		Required:             []string{"confirmed", "device_id"},
-		AdditionalProperties: &jsonschema.Schema{Not: &jsonschema.Schema{}},
-	}
+func confirmationSchema() *jsonschema.Schema {
+	// Device, capabilities, arguments and policy are already sealed in RequestState.
+	// This is approval of that exact request, not a request for additional data.
+	return &jsonschema.Schema{Type: "object", Properties: map[string]*jsonschema.Schema{}, AdditionalProperties: &jsonschema.Schema{Not: &jsonschema.Schema{}}}
 }
 
 func inputBatch(in runActionsInput) (input.Batch, error) {

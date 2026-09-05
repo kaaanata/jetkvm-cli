@@ -30,8 +30,9 @@ const (
 // SessionConfig configures the local WebRTC session. ICE servers are normally
 // empty for direct LAN access.
 type SessionConfig struct {
-	ICEServers []webrtc.ICEServer
-	newPeer    func(webrtc.Configuration) (*webrtc.PeerConnection, error)
+	ConnectTimeout time.Duration
+	ICEServers     []webrtc.ICEServer
+	newPeer        func(webrtc.Configuration) (*webrtc.PeerConnection, error)
 }
 
 // VideoTrack identifies a remote media track and the session generation that
@@ -103,6 +104,15 @@ func (c *Client) OpenSession(ctx context.Context, cfg SessionConfig) (*Session, 
 }
 
 func (c *Client) openSession(ctx context.Context, cfg SessionConfig, generation uint64) (*Session, error) {
+	timeout := cfg.ConnectTimeout
+	if timeout == 0 {
+		timeout = 20 * time.Second
+	}
+	if timeout < 0 {
+		return nil, errors.New("connect timeout must be positive")
+	}
+	ctx, cancelConnect := context.WithTimeout(ctx, timeout)
+	defer cancelConnect()
 	signal, err := c.dialSignaling(ctx)
 	if err != nil {
 		return nil, err
@@ -111,7 +121,7 @@ func (c *Client) openSession(ctx context.Context, cfg SessionConfig, generation 
 	deviceVersion, err := awaitDeviceMetadata(ctx, signal)
 	if err != nil {
 		_ = signal.conn.CloseNow()
-		return nil, err
+		return nil, fmt.Errorf("wait for device metadata: %w", err)
 	}
 
 	newPeer := cfg.newPeer
@@ -441,13 +451,13 @@ func (s *Session) writeSignals() {
 }
 
 func (s *Session) waitReady(ctx context.Context) error {
-	for _, ready := range []<-chan struct{}{s.answerReady, s.rpcReady, s.hidReady} {
+	for index, ready := range []<-chan struct{}{s.answerReady, s.rpcReady, s.hidReady} {
 		select {
 		case <-ready:
 		case <-s.done:
 			return s.Err()
 		case <-ctx.Done():
-			return context.Cause(ctx)
+			return fmt.Errorf("wait for %s: %w", []string{"SDP answer", "RPC channel", "HID handshake"}[index], context.Cause(ctx))
 		}
 	}
 	return nil
