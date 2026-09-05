@@ -1,5 +1,7 @@
 # Project Notes
 
+- `docs/mac-mini-power-forum-research.md` separates first-hand forum experiments from protocol feasibility. USB sleep/wake, cold start, ordinary Recovery and paired 1TR are distinct outcomes; do not present USB-PD reboot/DFU or a boot-picker screenshot as proven physical-button Recovery.
+
 - `docs/mac-mini-power-research.md` records source-based Mac power-path feasibility, separate from verified product capabilities. Keyboard Power encoding, USB runtime handling, AC restoration, and Recovery physical-button hold are distinct acceptance targets.
 
 - Device-action second confirmation is controlled by top-level confirmation.required, default false even for older configurations that omit it. CLI config set --require-confirmation and MCP confirmation_required update it through revision-bound settings. This never changes permissions, takeover allowance, generation fencing, receipts or cleanup. Configuration/integration maintenance approval remains separate.
