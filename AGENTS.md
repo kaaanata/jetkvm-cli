@@ -1,5 +1,7 @@
 # Project Notes
 
+- JetKVM Mini firmware can omit `loopbackOnly` from the authenticated `/device` response. Require the device identity and auth mode as before, and report the omitted setting as unavailable. The shared client serves both enrollment and status.
+
 - Apple PD feasibility is documented in `docs/apple-usb-pd-vdm-protocol-research.md` and `docs/jetkvm-usb-pd-hardware-research.md`. VDM reset/DFU, controller initialization and physical-button/paired-1TR semantics are separate; research commands are not a shipped backend or read-only probe.
 
 - `docs/mac-mini-power-forum-research.md` separates first-hand forum experiments from protocol feasibility. USB sleep/wake, cold start, ordinary Recovery and paired 1TR are distinct outcomes; do not present USB-PD reboot/DFU or a boot-picker screenshot as proven physical-button Recovery.
@@ -87,7 +89,7 @@
 - Update this file and `docs/design.md` when product scope, public tools, protocol assumptions, or safety invariants change.
 
 - Ordinary observations may reuse fresh decoded frames but always respect the latest input-completion boundary. Observe-after, batch capture and wake recovery retain server-owned NotBefore bounds. Request cancellation never kills the shared stream; copied pixel planes remain immutable after decoder reuse. CLI remains command-scoped.
-- The embedded FFmpeg 9.0.1 H.264-only build uses LGPL-2.1-or-later components. Publish complete corresponding source and rebuild material in a separately signed decoder-source.tar.gz asset; preserve the four-file executable archive contract and include full codec and linked WASI libc/compiler-rt licenses in NOTICE and their pinned identities in the decoder SBOM. No external FFmpeg process is required.
+- The embedded FFmpeg 9.1 H.264-only build uses LGPL-2.1-or-later components. Publish complete corresponding source and rebuild material in a separately signed decoder-source.tar.gz asset; preserve the four-file executable archive contract and include full codec and linked WASI libc/compiler-rt licenses in NOTICE and their pinned identities in the decoder SBOM. No external FFmpeg process is required.
 - Continuous HIL and replay measurements remain separate: the startup test can record private length-prefixed AUs with JETKVM_HIL_CONTINUOUS/JETKVM_HIL_RECORD, and JETKVM_VIDEO_REFERENCE_MD5 checks replay output against native reference hashes. Never commit hardware recordings, hashes, or screenshots; publish aggregate measurements only.
 
 - Cancellation during post-wake readiness polling retains the last confirmed sleep/no-signal error together with the completed wake receipt. Test cancellation at explicit callback boundaries; do not rely on short wall-clock sleeps to assume input has completed.

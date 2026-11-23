@@ -71,9 +71,12 @@ Relevant upstream properties:
 7. Local authentication does not provide service-account scopes or multi-user audit authority.
 8. Open HTTP RPC and screenshot proposals are not stable released compatibility contracts.
 
+JetKVM Mini firmware 0.5.20 and 0.5.22 return `authMode` and `deviceId` from `/device` without `loopbackOnly`. Enrollment and status still require a valid auth mode and device identity. Basic status attributes the omitted setting to `/device` and marks it unavailable.
+
 Primary references:
 
 - [JetKVM source](https://github.com/jetkvm/kvm)
+- [JetKVM Mini firmware source](https://github.com/jetkvm/mini/tree/release/0.5.22)
 - [Local access documentation](https://jetkvm.com/docs/networking/local-access)
 - [HTTP RPC issue](https://github.com/jetkvm/kvm/issues/1320)
 - [Screenshot API issue](https://github.com/jetkvm/kvm/issues/1555)
@@ -619,4 +622,4 @@ Permissions and takeover allowance are still mandatory, and the setting does not
 
 ### Continuous video reference ownership
 
-The embedded backend is a persistent FFmpeg 9.0.1 H.264-only WASI reactor. It has no external codec or CGo runtime dependency. One session owns the receiver and decoder worker; a bounded ordered AU queue preserves P/B reference dependencies. Loss or overload discards the invalid chain and fences in-flight publication until an independent IDR. Decoder output tokens resolve to original source metadata across reordering. Immutable copied YUV planes allow encoding while subsequent frames decode. Request cancellation ends only observation waiting; session reset and closure cancel and join the stream. See the [decoder decision and evidence](../internal/video/DECODER_DECISION.md).
+The embedded backend is a persistent FFmpeg 9.1 H.264-only WASI reactor. It has no external codec or CGo runtime dependency. One session owns the receiver and decoder worker; a bounded ordered AU queue preserves P/B reference dependencies. Loss or overload discards the invalid chain and fences in-flight publication until an independent IDR. Decoder output tokens resolve to original source metadata across reordering. Immutable copied YUV planes allow encoding while subsequent frames decode. Request cancellation ends only observation waiting; session reset and closure cancel and join the stream. See the [decoder decision and evidence](../internal/video/DECODER_DECISION.md).

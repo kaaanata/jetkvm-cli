@@ -75,7 +75,7 @@ func TestServiceGetStatusRejectsIdentityMismatchBeforeCloudRead(t *testing.T) {
 		case "/device/status":
 			_, _ = w.Write([]byte(`{"isSetup":true}`))
 		case "/device":
-			_, _ = w.Write([]byte(`{"authMode":"noPassword","deviceId":"different-hardware","loopbackOnly":false}`))
+			_, _ = w.Write([]byte(`{"authMode":"noPassword","deviceId":"different-hardware"}`))
 		case "/cloud/state":
 			cloudCalls.Add(1)
 			_, _ = w.Write([]byte(`{"connected":false}`))
@@ -93,6 +93,38 @@ func TestServiceGetStatusRejectsIdentityMismatchBeforeCloudRead(t *testing.T) {
 	}
 	if got := cloudCalls.Load(); got != 0 {
 		t.Fatalf("cloud reads = %d, want 0 after identity mismatch", got)
+	}
+}
+
+func TestServiceGetStatusOnMini(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/device/status":
+			_, _ = w.Write([]byte(`{"isSetup":true,"factoryResetPending":false,"sku":"jetkvm-mini-ethernet"}`))
+		case "/device":
+			_, _ = w.Write([]byte(`{"authMode":"noPassword","deviceId":"hardware-1"}`))
+		case "/cloud/state":
+			_, _ = w.Write([]byte(`{"connected":false,"url":"","appUrl":""}`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	t.Cleanup(server.Close)
+	client := newJetKVMTestClient(t, server.URL)
+	service := newTestService(t, client, true, time.Now)
+	status, err := service.GetStatus(t.Context(), "hardware-1", domain.StatusBasic)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !status.Reachable || status.DeviceID != "hardware-1" || status.Fields["auth_mode"].Value != "noPassword" {
+		t.Fatalf("unexpected status: %+v", status)
+	}
+	loopback := status.Fields["loopback_only"]
+	if loopback.Value != nil || loopback.Unavailable == "" || loopback.Source != "/device" {
+		t.Fatalf("loopback_only = %+v, want an unavailable observation", loopback)
 	}
 }
 

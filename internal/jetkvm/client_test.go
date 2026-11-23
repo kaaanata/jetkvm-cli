@@ -72,7 +72,7 @@ func TestClientNoPasswordReadsAllEndpointsWithoutLogin(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetDevice() error = %v", err)
 	}
-	if local.AuthMode != "noPassword" || local.DeviceID != "device-1" || local.LoopbackOnly {
+	if local.AuthMode != "noPassword" || local.DeviceID != "device-1" || local.LoopbackOnly == nil || *local.LoopbackOnly {
 		t.Fatalf("GetDevice() = %+v", local)
 	}
 	cloud, err := client.GetCloudState(t.Context())
@@ -189,16 +189,27 @@ func TestClientRejectsCrossOriginRedirect(t *testing.T) {
 func TestClientRejectsMissingRequiredFields(t *testing.T) {
 	t.Parallel()
 
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"authMode":"noPassword","deviceId":"device-1"}`))
-	}))
-	defer server.Close()
+	for _, test := range []struct {
+		name string
+		body string
+	}{
+		{name: "identity", body: `{"authMode":"noPassword","loopbackOnly":false}`},
+		{name: "auth mode", body: `{"deviceId":"device-1","loopbackOnly":false}`},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = io.WriteString(w, test.body)
+			}))
+			t.Cleanup(server.Close)
 
-	client := newHTTPTestClient(t, server.URL, nil)
-	_, err := client.GetDevice(t.Context())
-	if !errors.Is(err, ErrUnexpectedResponse) {
-		t.Fatalf("GetDevice() error = %v, want unexpected response", err)
+			client := newHTTPTestClient(t, server.URL, nil)
+			_, err := client.GetDevice(t.Context())
+			if !errors.Is(err, ErrUnexpectedResponse) {
+				t.Fatalf("GetDevice() error = %v, want unexpected response", err)
+			}
+		})
 	}
 }
 

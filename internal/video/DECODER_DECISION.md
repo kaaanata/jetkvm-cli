@@ -1,7 +1,9 @@
 # Continuous embedded H.264 decoder
 
-Status: FFmpeg 9.0.1 H.264-only WASI reactor implemented. See the verification
-record below for the distinction between synthetic replay, hardware, and release.
+The current reactor embeds FFmpeg 9.1 with H.264 decoding enabled. The selection
+and original release measurements below used FFmpeg 9.0.1. The codec update
+uses the same WASI build options and is covered by the real-IDR and continuous
+P/B-frame golden tests.
 
 ## Selection evidence
 

@@ -74,7 +74,7 @@ type DeviceSetup struct {
 type LocalDevice struct {
 	AuthMode     string
 	DeviceID     string
-	LoopbackOnly bool
+	LoopbackOnly *bool // nil when the firmware does not report this setting
 }
 
 // CloudState is the authenticated connection state returned by /cloud/state.
@@ -181,7 +181,7 @@ func (c *Client) GetDevice(ctx context.Context) (LocalDevice, error) {
 	if err := c.get(ctx, "/device", true, &wire); err != nil {
 		return LocalDevice{}, err
 	}
-	if wire.AuthMode == nil || wire.DeviceID == "" || wire.LoopbackOnly == nil {
+	if wire.AuthMode == nil || wire.DeviceID == "" {
 		return LocalDevice{}, ErrUnexpectedResponse
 	}
 	if *wire.AuthMode != "password" && *wire.AuthMode != "noPassword" {
@@ -190,7 +190,7 @@ func (c *Client) GetDevice(ctx context.Context) (LocalDevice, error) {
 	return LocalDevice{
 		AuthMode:     *wire.AuthMode,
 		DeviceID:     wire.DeviceID,
-		LoopbackOnly: *wire.LoopbackOnly,
+		LoopbackOnly: wire.LoopbackOnly,
 	}, nil
 }
 
