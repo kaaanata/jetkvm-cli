@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.0.12](https://github.com/kaaanata/jetkvm-cli/compare/v1.0.11...v1.0.12) (2026-11-23)
+
+
+### Bug Fixes
+
+* support JetKVM Mini and update dependencies ([#32](https://github.com/kaaanata/jetkvm-cli/issues/32)) ([f74da0f](https://github.com/kaaanata/jetkvm-cli/commit/f74da0f5f8aeed00caf04567c90af6b03c0ddafe))
+
 ## [1.0.11](https://github.com/kaaanata/jetkvm-cli/compare/v1.0.10...v1.0.11) (2026-09-05)
 
 
