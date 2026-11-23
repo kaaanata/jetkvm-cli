@@ -1,12 +1,12 @@
 # Embedded H.264 decoder source
 
-The checked-in reactor embeds FFmpeg 9.0.1 `libavcodec` (H.264 decoder only) and
+The checked-in reactor embeds FFmpeg 9.1 `libavcodec` (H.264 decoder only) and
 `libavutil`, compiled with wasi-sdk 34.0 / LLVM 23.1.0. No network, format readers,
 encoders, external codecs, GPL components, or nonfree components are enabled.
 The binary executes in wazero with a 512 MiB linear-memory ceiling. One session
 owns one reactor and serialized calls. The library is not used concurrently.
 
-`ffmpeg-9.0.1.tar.xz` is the complete unmodified upstream corresponding source.
+`ffmpeg-9.1.tar.xz` is the complete unmodified upstream corresponding source.
 SHA-256 is pinned in `SOURCE.sha256`. Its detached upstream signature was verified
 with FFmpeg's release key `FCF986EA15E6E293A5644F10B4322F04D67658D8` before vendoring.
 `reactor.c` is the small project-owned ABI adapter. There are no codec patches.

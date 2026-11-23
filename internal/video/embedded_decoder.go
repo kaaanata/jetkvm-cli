@@ -25,7 +25,7 @@ var decoderWASM []byte
 //go:embed DECODER_LICENSES.txt
 var decoderLicenses string
 
-const decoderName = "ffmpeg-9.0.1-h264-wasi"
+const decoderName = "ffmpeg-9.1-h264-wasi"
 const decoderMemoryPages = 8192 // 512 MiB hard linear-memory limit per instance.
 const decoderTimeout = 10 * time.Second
 
