@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.0.13](https://github.com/kaaanata/jetkvm-cli/compare/v1.0.12...v1.0.13) (2026-11-23)
+
+
+### Bug Fixes
+
+* verify the pinned decoder release source ([#34](https://github.com/kaaanata/jetkvm-cli/issues/34)) ([c966c39](https://github.com/kaaanata/jetkvm-cli/commit/c966c39e3e58f3f5817f96815e4030c5736c6e31))
+
 ## [1.0.12](https://github.com/kaaanata/jetkvm-cli/compare/v1.0.11...v1.0.12) (2026-11-23)
 
 
