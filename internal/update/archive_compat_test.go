@@ -9,8 +9,10 @@ import (
 	"errors"
 	"io"
 	"os"
+	"path"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -32,26 +34,7 @@ func TestBuiltReleaseArchiveCompatibility(t *testing.T) {
 	if err := verifyArchiveChecksum("decoder-source.tar.gz", source, manifest); err != nil {
 		t.Fatal(err)
 	}
-	var document struct {
-		Packages []struct {
-			Name    string `json:"name"`
-			Version string `json:"versionInfo"`
-		} `json:"packages"`
-	}
-	if err := json.Unmarshal(sbom, &document); err != nil {
-		t.Fatal(err)
-	}
-	for _, dependency := range []struct{ name, version string }{{"ffmpeg", "9.0.1"}} {
-		found := false
-		for _, pkg := range document.Packages {
-			if pkg.Name == dependency.name && pkg.Version == dependency.version {
-				found = true
-			}
-		}
-		if !found {
-			t.Fatalf("decoder SBOM missing %s %s", dependency.name, dependency.version)
-		}
-	}
+	checkDecoderReleaseMetadata(t, sbom, source)
 	entries, err := os.ReadDir(dist)
 	if err != nil {
 		t.Fatal(err)
@@ -154,6 +137,78 @@ func TestBuiltReleaseArchiveCompatibility(t *testing.T) {
 				t.Errorf("missing archive: %s_%s", osName, arch)
 			}
 		}
+	}
+}
+
+func checkDecoderReleaseMetadata(t *testing.T, sbom, source []byte) {
+	t.Helper()
+	const decoderSourceDirectory = "internal/video/wasmdecoder"
+	lock := readCompatFile(t, "../video/wasmdecoder/SOURCE.sha256")
+	fields := strings.Fields(string(lock))
+	if len(fields) != 2 || path.Base(fields[1]) != fields[1] {
+		t.Fatal("expected one FFmpeg source archive in SOURCE.sha256")
+	}
+	checksum, archive := fields[0], fields[1]
+	version, hasPrefix := strings.CutPrefix(archive, "ffmpeg-")
+	version, hasSuffix := strings.CutSuffix(version, ".tar.xz")
+	if !hasPrefix || !hasSuffix || version == "" {
+		t.Fatalf("invalid FFmpeg source filename %q", archive)
+	}
+	type packageChecksum struct {
+		Algorithm string `json:"algorithm"`
+		Value     string `json:"checksumValue"`
+	}
+	type packageInfo struct {
+		Name      string            `json:"name"`
+		Version   string            `json:"versionInfo"`
+		Checksums []packageChecksum `json:"checksums"`
+	}
+	var document struct {
+		Packages []packageInfo `json:"packages"`
+	}
+	if err := json.Unmarshal(sbom, &document); err != nil {
+		t.Fatal(err)
+	}
+	expected := packageChecksum{Algorithm: "SHA256", Value: checksum}
+	if !slices.ContainsFunc(document.Packages, func(pkg packageInfo) bool {
+		return pkg.Name == "ffmpeg" && pkg.Version == version && slices.Contains(pkg.Checksums, expected)
+	}) {
+		t.Fatalf("decoder SBOM missing FFmpeg %s with its pinned source checksum", version)
+	}
+
+	gz, err := gzip.NewReader(bytes.NewReader(source))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer gz.Close()
+	tarReader := tar.NewReader(gz)
+	expectedPath := path.Join(decoderSourceDirectory, archive)
+	found := false
+	for {
+		header, err := tarReader.Next()
+		if errors.Is(err, io.EOF) {
+			break
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
+		if header.Name != expectedPath {
+			continue
+		}
+		if found || header.Typeflag != tar.TypeReg {
+			t.Fatalf("expected one regular source file at %q", expectedPath)
+		}
+		data, err := io.ReadAll(tarReader)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := verifyArchiveChecksum(archive, data, lock); err != nil {
+			t.Fatalf("published FFmpeg source: %v", err)
+		}
+		found = true
+	}
+	if !found {
+		t.Fatalf("decoder source package missing %s", expectedPath)
 	}
 }
 
