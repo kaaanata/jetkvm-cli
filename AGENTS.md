@@ -1,5 +1,7 @@
 # Project Notes
 
+- JetKVM Mini firmware can omit `loopbackOnly` from the authenticated `/device` response. Require the device identity and auth mode as before, and report the omitted setting as unavailable. The shared client serves both enrollment and status.
+
 - Apple PD feasibility is documented in `docs/apple-usb-pd-vdm-protocol-research.md` and `docs/jetkvm-usb-pd-hardware-research.md`. VDM reset/DFU, controller initialization and physical-button/paired-1TR semantics are separate; research commands are not a shipped backend or read-only probe.
 
 - `docs/mac-mini-power-forum-research.md` separates first-hand forum experiments from protocol feasibility. USB sleep/wake, cold start, ordinary Recovery and paired 1TR are distinct outcomes; do not present USB-PD reboot/DFU or a boot-picker screenshot as proven physical-button Recovery.

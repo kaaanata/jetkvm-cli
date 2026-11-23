@@ -71,9 +71,12 @@ Relevant upstream properties:
 7. Local authentication does not provide service-account scopes or multi-user audit authority.
 8. Open HTTP RPC and screenshot proposals are not stable released compatibility contracts.
 
+JetKVM Mini firmware 0.5.20 and 0.5.22 return `authMode` and `deviceId` from `/device` without `loopbackOnly`. Enrollment and status still require a valid auth mode and device identity. Basic status attributes the omitted setting to `/device` and marks it unavailable.
+
 Primary references:
 
 - [JetKVM source](https://github.com/jetkvm/kvm)
+- [JetKVM Mini firmware source](https://github.com/jetkvm/mini/tree/release/0.5.22)
 - [Local access documentation](https://jetkvm.com/docs/networking/local-access)
 - [HTTP RPC issue](https://github.com/jetkvm/kvm/issues/1320)
 - [Screenshot API issue](https://github.com/jetkvm/kvm/issues/1555)

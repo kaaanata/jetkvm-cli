@@ -137,9 +137,13 @@ func (s *Service) GetStatus(ctx context.Context, id domain.DeviceID, detail doma
 	}
 	observedAt := s.now()
 	fields := map[string]domain.FieldObservation{
-		"setup":         field(setup.IsSetup, "/device/status", observedAt),
-		"auth_mode":     field(local.AuthMode, "/device", observedAt),
-		"loopback_only": field(local.LoopbackOnly, "/device", observedAt),
+		"setup":     field(setup.IsSetup, "/device/status", observedAt),
+		"auth_mode": field(local.AuthMode, "/device", observedAt),
+	}
+	if local.LoopbackOnly == nil {
+		fields["loopback_only"] = unavailableField("/device", observedAt, "firmware does not report loopback-only mode")
+	} else {
+		fields["loopback_only"] = field(*local.LoopbackOnly, "/device", observedAt)
 	}
 	cloud, cloudErr := target.Client.GetCloudState(ctx)
 	if cloudErr != nil {
